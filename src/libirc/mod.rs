@@ -167,7 +167,7 @@ fn get_message_from_stream(stream: &mut TcpStream) -> Message {
                 }
             },
             Result::Err(error)      => {
-                println!("Stream read exrror: {:?}", error);
+                println!("Stream read error: {:?}", error);
                 break;
             }
         }
@@ -184,6 +184,7 @@ fn get_message_from_stream(stream: &mut TcpStream) -> Message {
     parse_message(&msg_str)
 }
 
+//@todo document
 pub fn start(server: String, pass: String, nick: String, channel: String) -> Result<mpsc::Receiver<Vec<String>>, &'static str> {
     let (tx, rx) = mpsc::channel();
     
@@ -251,12 +252,9 @@ pub fn start(server: String, pass: String, nick: String, channel: String) -> Res
                     },
                     //Command::Unknown => println!("Got unknown!"),
                     Command::Privmsg => {
-                        println!("Closure got privmsg:");
                         for x in params.iter() {
                             println!("\t {}", x);
                         }
-                        
-                        println!("Got something!");
                         
                         if params.len() > 0 {
                             tx.send(params);

@@ -11,6 +11,9 @@ use std::fs::File;
 use std::io::Read;
 
 
+const CONFIG_FILE_PATH: &'static str = "tppm.toml";
+
+
 #[test]
 fn it_works() {
     // Initialize a virtual N64 controller
@@ -19,12 +22,12 @@ fn it_works() {
         Err(msg) => panic!("Unable to initialize controller: {}!", msg),
     };
 
-    // Grab our configuration from our configuration file
-    // Open our config file and capture it into a string
-    let mut config_file = File::open("tppm.toml").unwrap();
+    // Parse our configuration file
+    let mut config_file = File::open(CONFIG_FILE_PATH).unwrap();
     let mut config_string = String::new();
     config_file.read_to_string(&mut config_string);
     
+    //@todo understand this generics magic
     let toml_tree: toml::Value = config_string.parse().unwrap();
     
     let server = String::from(toml_tree.lookup("irc.server").unwrap().as_str().unwrap());
@@ -32,16 +35,30 @@ fn it_works() {
     let nick = String::from(toml_tree.lookup("irc.nick").unwrap().as_str().unwrap());
     let channel = String::from(toml_tree.lookup("irc.channel").unwrap().as_str().unwrap());
     
+    // Start our IRC listener
     let rx = libirc::start(server, pass, nick, channel).unwrap();
     
     loop {
         let received_value = rx.recv().unwrap();
         
+        //@todo understand as_ref()
         match received_value.get(1).unwrap().as_ref() {
             "a" => {
-                libvn64c::set_button(&controller, libvn64c::BUTTON_A, false);
+                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::A, true);
+                thread::sleep_ms(500);
+                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::A, false);
                 thread::sleep_ms(200);
-                libvn64c::set_button(&controller, libvn64c::BUTTON_A, true);
+            },
+            "b" => {
+                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::B, true);
+                thread::sleep_ms(500);
+                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::B, false);
+                thread::sleep_ms(200);
+            },
+            "start" => {
+                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::Start, true);
+                thread::sleep_ms(200);
+                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::Start, false);
                 thread::sleep_ms(200);
             },
             "up" => { libvn64c::set_joystick(&mut controller, 90, 0.5); },
