@@ -1,0 +1,5 @@
+[irc]
+server = "irc.twitch.tv:6667"
+pass = "oauth:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+nick = "twitch_account_name"
+channel = "#twitch_account_to_listen_to"

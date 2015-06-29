@@ -5,11 +5,13 @@ use std::io::Read;
 use std::io::Write;
 use std::str;
 use std::str::FromStr;
+use std::thread;
+use std::sync::mpsc;
 
 use regex::Regex;
 
 #[derive(Debug)]
-pub enum Command {
+enum Command {
     ReplyWelcome,
     ReplyYourhost,
     ReplyCreated,
@@ -36,10 +38,10 @@ pub enum Command {
 }
 
 #[derive(Debug)]
-pub struct Message {
-    pub prefix: Option<String>,
-    pub command: Option<Command>,
-    pub params: Option<Vec<String>>
+struct Message {
+    prefix: Option<String>,
+    command: Option<Command>,
+    params: Option<Vec<String>>
 }
 
 fn parse_message(msg: &str) -> Message {
@@ -132,7 +134,21 @@ fn parse_message(msg: &str) -> Message {
     message_struct
 }
 
-pub fn get_message_from_stream(stream: &mut TcpStream) -> Message {
+fn last_two_are_crlf(myvec: &Vec<u8>) -> bool {
+    let myvec_len = myvec.len();
+
+    if myvec_len < 2 {
+        return false;
+    }
+
+    match (myvec[myvec_len-2], myvec[myvec_len-1]) {
+        (b'\r', b'\n')  => true,
+        _               => false,
+    }
+}
+
+// Get a message from an IRC channel.
+fn get_message_from_stream(stream: &mut TcpStream) -> Message {
     // Receive a message from the server as raw bytes.
     // We'll convert it to a String once we've received the whole thing, to simplify parsing
     let mut response: Vec<u8> = Vec::new();
@@ -168,37 +184,89 @@ pub fn get_message_from_stream(stream: &mut TcpStream) -> Message {
     parse_message(&msg_str)
 }
 
+pub fn start(server: String, pass: String, nick: String, channel: String) -> Result<mpsc::Receiver<Vec<String>>, &'static str> {
+    let (tx, rx) = mpsc::channel();
+    
+    thread::spawn(move|| {
+        // Connect to the IRC server
+        let mut stream = TcpStream::connect(&server[..]).unwrap();
 
-#[derive(Debug)]
-struct LibircConfig <'a> {
-    server: &'a str,
-    port: u16,
-    nick: &'a str,
-    pass: &'a str,
-    channel: &'a str
-}
+        // Send the server our nick and user
+        //@todo make these functions
+        let mut pass_string = String::new();
+        pass_string.push_str("PASS ");
+        pass_string.push_str(&pass[..]);
+        pass_string.push_str("\r\n");
+        println!("pass_string: {}", pass_string);
+        stream.write_all(pass_string.as_bytes());
 
+        let mut nick_string = String::new();
+        nick_string.push_str("NICK ");
+        nick_string.push_str(&nick[..]);
+        nick_string.push_str("\r\n");
+        println!("nick_string: {}", nick_string);
+        stream.write_all(nick_string.as_bytes());
+        
+        let mut sent_join = false;
+        
+        loop {
+            let m = get_message_from_stream(&mut stream);
+            if m.command.is_none() {
+                println!("Ignoring message with unidentified command...");
+            } else {
+                let null_prefix = String::new();
+                let mut null_params = Vec::new();
+                null_params.push(String::new());
 
-/*
-fn config_is_valid(libirc_config: LibircConfig) -> bool {
-    // Check that server is valid domain name
-    // Check that port is >0 and < 65536
-    // Check that nick is a valid IRC nick
-    // Check that user is a valid IRC user
-    // Check that channel is a valid IRC channel
-    true
-}
-*/
+                let prefix = m.prefix.unwrap_or(null_prefix);
+                let command = m.command.unwrap();
+                let params = m.params.unwrap_or(null_params);
 
-fn last_two_are_crlf(myvec: &Vec<u8>) -> bool {
-    let myvec_len = myvec.len();
+                println!("{:?} {:?}: {:?}", prefix, command, params);
 
-    if myvec_len < 2 {
-        return false;
-    }
-
-    match (myvec[myvec_len-2], myvec[myvec_len-1]) {
-        (b'\r', b'\n')  => true,
-        _               => false,
-    }
+                match command {
+                    // as a bot, all we really care about is:
+                    // does the server consider our channel valid yet? if so, JOIN target channel
+                    // has the server acknowledged our join? (are we in our target channel?)
+                    // did another client send a message? if so, log it and act on it
+                    // did the server ping us? if so, pong it
+                    //Command::Notice =>  println!("NOTICE {:?} {:?}", prefix, params),
+                    //Command::Error =>   println!("Got an error!"),
+                    Command::ReplyWelcome => {
+                        // Ready to join!
+                        //@TODO there must be a better sign that the server likes our pipe now?
+                        if sent_join == false {
+                            println!("Server welcomed us. Joining target channel");
+                            let mut join_string = String::new();
+                            join_string.push_str("JOIN ");
+                            join_string.push_str(&channel[..]);
+                            join_string.push_str("\r\n");
+                            println!("join_string: {}", join_string);
+                            stream.write_all(join_string.as_bytes());
+                            sent_join = true;
+                        }
+                    },
+                    Command::Ping => {
+                        stream.write_all("PONG\r\n".as_bytes());
+                    },
+                    //Command::Unknown => println!("Got unknown!"),
+                    Command::Privmsg => {
+                        println!("Closure got privmsg:");
+                        for x in params.iter() {
+                            println!("\t {}", x);
+                        }
+                        
+                        println!("Got something!");
+                        
+                        if params.len() > 0 {
+                            tx.send(params);
+                        }
+                    }
+                    _ => ()
+                }
+            }
+        }
+    });
+    
+    Ok(rx)
 }

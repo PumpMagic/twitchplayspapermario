@@ -5,7 +5,6 @@
 mod vjoyinterface;
 extern crate std;
 extern crate libc;
-use std::collections::hash_map;
 
 // Hardcode the vJoy virtual joystick index of whatever joystick our emulator listens to
 const VJOY_DEVICE_NUMBER: libc::c_uint = 1;
@@ -50,7 +49,19 @@ pub struct VirtualN64ControllerProps {
 pub struct VirtualN64ControllerState {
     pub x: libc::c_long,
     pub y: libc::c_long,
-    pub buttons: hash_map::HashMap<libc::c_uchar, bool>,
+    pub a: libc::c_int,
+    pub b: libc::c_int,
+    pub z: libc::c_int,
+    pub l: libc::c_int,
+    pub r: libc::c_int,
+    pub cup: libc::c_int,
+    pub cdown: libc::c_int,
+    pub cleft: libc::c_int,
+    pub cright: libc::c_int,
+    pub dup: libc::c_int,
+    pub ddown: libc::c_int,
+    pub dleft: libc::c_int,
+    pub dright: libc::c_int,
 }
 
 pub struct VirtualN64Controller {
@@ -71,7 +82,19 @@ impl Default for VirtualN64Controller {
             state: VirtualN64ControllerState {
                 x: 0,
                 y: 0,
-                buttons: hash_map::HashMap::with_capacity(NUM_N64_BUTTONS as usize),
+                a: 0,
+                b: 0,
+                z: 0,
+                l: 0,
+                r: 0,
+                cup: 0,
+                cdown: 0,
+                cleft: 0,
+                cright: 0,
+                dup: 0,
+                ddown: 0,
+                dleft: 0,
+                dright: 0,
             }
         }
     }
@@ -220,21 +243,6 @@ fn populate_vn64c(controller: &mut VirtualN64Controller) -> bool {
     
     controller.state.x = (controller.props.x_max - controller.props.x_min) / 2;
     controller.state.y = (controller.props.y_max - controller.props.y_min) / 2;
-    controller.state.buttons = hash_map::HashMap::with_capacity(NUM_N64_BUTTONS as usize);
-    controller.state.buttons.insert(BUTTON_A, false);
-    controller.state.buttons.insert(BUTTON_B, false);
-    controller.state.buttons.insert(BUTTON_Z, false);
-    controller.state.buttons.insert(BUTTON_L, false);
-    controller.state.buttons.insert(BUTTON_R, false);
-    controller.state.buttons.insert(BUTTON_START, false);
-    controller.state.buttons.insert(BUTTON_CUP, false);
-    controller.state.buttons.insert(BUTTON_CDOWN, false);
-    controller.state.buttons.insert(BUTTON_CLEFT, false);
-    controller.state.buttons.insert(BUTTON_CRIGHT, false);
-    controller.state.buttons.insert(BUTTON_DUP, false);
-    controller.state.buttons.insert(BUTTON_DDOWN, false);
-    controller.state.buttons.insert(BUTTON_DLEFT, false);
-    controller.state.buttons.insert(BUTTON_DRIGHT, false);
     
     println!("Device number: {}", controller.props.vjoy_device_number);
     println!("\tX min: {}", controller.props.x_min);
@@ -261,23 +269,25 @@ fn flush(controller: &VirtualN64Controller) -> bool {
 // Exposed functions
 // Initialize a virtual N64 controller
 // After calling this successfully, controller is a valid handle for other functions
-pub fn init(controller: &mut VirtualN64Controller) -> bool {
+pub fn init() -> Result<VirtualN64Controller, &'static str> {
+    let mut controller = VirtualN64Controller { ..Default::default() };
+    
     controller.props.vjoy_device_number = VJOY_DEVICE_NUMBER;
     
-    if !is_vjoy_enabled() { return false; }
-    if !is_vjoystick_n64(controller.props.vjoy_device_number) { return false; }
-    if !claim_vjoystick(controller.props.vjoy_device_number) { return false; }
-    if !reset_vjoystick(controller.props.vjoy_device_number) { return false; }
+    if !is_vjoy_enabled() { return Err("vJoy isn't enabled"); }
+    if !is_vjoystick_n64(controller.props.vjoy_device_number) { return Err("Virtual joystick is not capable of emulating an N64 controller"); }
+    if !claim_vjoystick(controller.props.vjoy_device_number) { return Err("Unable to claim virtual joystick"); }
+    if !reset_vjoystick(controller.props.vjoy_device_number) { return Err("Unable to reset virtual joystick"); }
     
-    if !populate_vn64c(controller) { return false; }
+    if !populate_vn64c(&mut controller) { return Err("Unable to populate virtual N64 controller"); }
     
-    return true;
+    Ok(controller)
     
 }
 
 // Set the virtual joystick, assuming that direction is in degrees and strength is a number 0-1 inclusive
 //@todo don't trust controller argument
-pub fn set_joystick(controller: &mut VirtualN64Controller, direction: u16, strength: f32) -> bool {
+pub fn set_joystick(controller: &mut VirtualN64Controller, direction: u16, strength: f32) -> Result<(), &'static str> {
     // Convert direction from degrees to radians
     let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
     
@@ -294,13 +304,13 @@ pub fn set_joystick(controller: &mut VirtualN64Controller, direction: u16, stren
     controller.state.y = y;
     
     if !flush(controller) {
-        println!("Unable to flush controller!");
+        return Err("Unable to flush controller");
     }
     
     println!("Set joystick: x = {} y = {}", x_strength, y_strength);
     println!("Scaled for power, that's x = {} y = {}", x, y);
     
-    return true;
+    Ok(())
 }
 
 //@todo modify this to update the controller buttons hashmap and then call flush() rather than
