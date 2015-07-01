@@ -202,7 +202,7 @@ fn claim_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
         }
     }
     
-    return Err("Virtual joystick is owned by someone else, missing, or in unknown state");
+    Err("Virtual joystick is owned by someone else, missing, or in unknown state")
 }
 
 fn reset_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
@@ -213,7 +213,7 @@ fn reset_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
         }
     }
     
-    return Ok(());
+    Ok(())
 }
 
 fn set_vjoystick_axis(index: libc::c_uint, axis: libc::c_uint, value: libc::c_long) -> Result<(), ()> {

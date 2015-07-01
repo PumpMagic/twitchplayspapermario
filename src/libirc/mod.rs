@@ -10,6 +10,7 @@ use std::sync::mpsc;
 
 use regex::Regex;
 
+// A small subset of IRC command types
 #[derive(Debug)]
 enum Command {
     ReplyWelcome,
@@ -37,6 +38,7 @@ enum Command {
     Unknown
 }
 
+// A representation of an IRC message
 #[derive(Debug)]
 struct Message {
     prefix: Option<String>,
@@ -44,11 +46,13 @@ struct Message {
     params: Option<Vec<String>>
 }
 
-fn parse_message(msg: &str) -> Message {
+// Parse a UTF-8 string into our own IRC message structure
+fn parse_message(msg: String) -> Message {
     // Dissect the message to identify its prefix (if present), its command (if present), and its
     // arguments (if present)
+    //@todo probably a bad idea to have written this regex, google "irc regex" and replace this
     let re = Regex::new(r"(^:(?P<prefix>([:alnum:]|[:punct:])+) )?((?P<command>([:alnum:])+)? ?)(?P<params>.*?)\r").unwrap();
-    let cap = re.captures(msg).unwrap();
+    let cap = re.captures(&msg).unwrap();
 
     let prefix = cap.name("prefix");
     let command = cap.name("command");
@@ -58,8 +62,8 @@ fn parse_message(msg: &str) -> Message {
     // list of Strings
     let message_struct = Message {
         prefix: match prefix {
-            Some(prefix)   => Some(FromStr::from_str(prefix).unwrap()),
-            None           => None
+            Some(prefix) => Some(FromStr::from_str(prefix).unwrap()),
+            None => None
         },
 
         command: match command {
@@ -101,6 +105,7 @@ fn parse_message(msg: &str) -> Message {
                 // So we use regex.
                 //@TODO this regex fails if any middle parameter has a colon in it
                 //@TODO or if the trailing parameter has a \r without a following \n
+                //@todo probably a bad idea to have written this regex, google "irc regex" and replace this
                 let re = Regex::new(r"^(?P<middles>[^:]+)?(:(?P<trailing>[^\r\n]+))?").unwrap();
                 let cap = re.captures(params).unwrap();
 
@@ -129,8 +134,6 @@ fn parse_message(msg: &str) -> Message {
         }
     };
 
-    //println!("Parsed {:?}", message_struct);
-
     message_struct
 }
 
@@ -143,7 +146,7 @@ fn last_two_are_crlf(myvec: &Vec<u8>) -> bool {
 
     match (myvec[myvec_len-2], myvec[myvec_len-1]) {
         (b'\r', b'\n')  => true,
-        _               => false,
+        _               => false
     }
 }
 
@@ -175,13 +178,12 @@ fn get_message_from_stream(stream: &mut TcpStream) -> Message {
 
     // Convert our raw byte vector into a String for easier, native processing
     //@TODO Better handle invalid messages
-    let msg_str = match str::from_utf8(&response) {
-        Result::Ok(val)     => val,
-        Result::Err(err)    => panic!("{}", err),
+    let msg_str = match String::from_utf8(response) {
+        Ok(val) => val,
+        Err(err) => panic!("{}", err)
     };
-    //println!("Got raw message: {:?}", msg_str);
 
-    parse_message(&msg_str)
+    parse_message(msg_str)
 }
 
 //@todo document
@@ -198,14 +200,12 @@ pub fn start(server: String, pass: String, nick: String, channel: String) -> Res
         pass_string.push_str("PASS ");
         pass_string.push_str(&pass[..]);
         pass_string.push_str("\r\n");
-        println!("pass_string: {}", pass_string);
         stream.write_all(pass_string.as_bytes());
 
         let mut nick_string = String::new();
         nick_string.push_str("NICK ");
         nick_string.push_str(&nick[..]);
         nick_string.push_str("\r\n");
-        println!("nick_string: {}", nick_string);
         stream.write_all(nick_string.as_bytes());
         
         let mut sent_join = false;
@@ -242,7 +242,6 @@ pub fn start(server: String, pass: String, nick: String, channel: String) -> Res
                             join_string.push_str("JOIN ");
                             join_string.push_str(&channel[..]);
                             join_string.push_str("\r\n");
-                            println!("join_string: {}", join_string);
                             stream.write_all(join_string.as_bytes());
                             sent_join = true;
                         }
