@@ -6,13 +6,13 @@ mod vjoyinterface;
 extern crate std;
 extern crate libc;
 
-// Number of digital inputs on a standard N64 controller
-const NUM_N64_BUTTONS: u8 = 14;
-
 // Control constants - what magic numbers do we need to play with each virtual device input?
 // USB HID joystick constants. We assume our emulator is configured to map virtual joystick to N64 joystick
 const HID_JOYSTICK_X: libc::c_uint = 0x30;
 const HID_JOYSTICK_Y: libc::c_uint = 0x31;
+
+// Number of digital inputs on a standard N64 controller
+const NUM_N64_BUTTONS: u8 = 14;
 
 #[derive(Debug)]
 pub enum VirtualN64ControllerButton {
@@ -125,7 +125,6 @@ fn is_vjoy_enabled() -> bool {
     unsafe {
         let vjoy_enabled = vjoyinterface::vJoyEnabled();
         if vjoy_enabled == 0 {
-            println!("vJoy isn't enabled");
             return false;
         }
     }
@@ -137,7 +136,6 @@ fn does_vjoystick_axis_exist(index: libc::c_uint, axis: libc::c_uint) -> bool {
     unsafe {
         let axis_exists = vjoyinterface::GetVJDAxisExist(index, axis);
         if axis_exists == 0 {
-            println!("vJoy device {} doesn't have axis {}", index, axis);
             return false;
         }
     }
@@ -174,7 +172,7 @@ fn get_vjoystick_axis_max(index: libc::c_uint, axis: libc::c_uint) -> Result<lib
 fn get_vjoystick_button_count(index: libc::c_uint) -> u8 {
     unsafe {
         let num_buttons = vjoyinterface::GetVJDButtonNumber(index);
-        println!("vJoy device {} has {} buttons", index, num_buttons);
+        
         num_buttons as u8
     }
 }
@@ -182,8 +180,8 @@ fn get_vjoystick_button_count(index: libc::c_uint) -> u8 {
 fn get_vjoystick_status(index: libc::c_uint) -> vjoyinterface::Enum_VjdStat {
     unsafe {
         let joystick_status = vjoyinterface::GetVJDStatus(index);
-        println!("vJoy device {} has status {}", index, joystick_status);
-        return joystick_status;
+        
+        joystick_status
     }
 }
 
@@ -218,26 +216,26 @@ fn reset_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
     return Ok(());
 }
 
-fn set_vjoystick_axis(index: libc::c_uint, axis: libc::c_uint, value: libc::c_long) -> bool {
+fn set_vjoystick_axis(index: libc::c_uint, axis: libc::c_uint, value: libc::c_long) -> Result<(), ()> {
     unsafe {
         let set_x_result = vjoyinterface::SetAxis(value, index, axis);
         if set_x_result == 0 {
-            return false;
+            return Err(());
         }
     }
     
-    return true;
+    Ok(())
 }
 
-fn set_vjoystick_button(index: libc::c_uint, button: libc::c_uchar, value: libc::c_int) -> bool {
+fn set_vjoystick_button(index: libc::c_uint, button: libc::c_uchar, value: libc::c_int) -> Result<(), ()> {
     unsafe {
         let set_result = vjoyinterface::SetBtn(value, index, button);
         if set_result == 0 {
-            return false;
+            return Err(());
         }
     }
     
-    return true;
+    Ok(())
 }
 
 // Test if a vJoy device has the controls we need to treat it like an N64 controller
@@ -247,7 +245,7 @@ fn is_vjoystick_n64(index: libc::c_uint) -> bool {
     if !does_vjoystick_axis_exist(index, HID_JOYSTICK_Y) { return false; }
     if !(get_vjoystick_button_count(index) >= NUM_N64_BUTTONS) { return false; }
     
-    return true;
+    true
 }
 
 // Make a virtual N64 controller given a vJoy device number
@@ -319,29 +317,27 @@ pub fn set_joystick(controller: &mut VirtualN64Controller, direction: u16, stren
     let x = x_mid + (x_strength * (x_mid as f32)) as libc::c_long;
     let y = y_mid + (y_strength * (y_mid as f32)) as libc::c_long;
     
+    match set_vjoystick_axis(controller.props.vjoy_device_number, HID_JOYSTICK_X, x) {
+        Ok(_) => (),
+        Err(_) => return Err("Unable to set X axis")
+    };
     controller.state.x = x;
+    
+    match set_vjoystick_axis(controller.props.vjoy_device_number, HID_JOYSTICK_Y, y) {
+        Ok(_) => (),
+        Err(_) => return Err("Unable to set Y axis")
+    };
     controller.state.y = y;
-    
-    if !set_vjoystick_axis(controller.props.vjoy_device_number, HID_JOYSTICK_X, controller.state.x) {
-        return Err("Unable to set X axis");
-    }
-    if !set_vjoystick_axis(controller.props.vjoy_device_number, HID_JOYSTICK_Y, controller.state.y) {
-        return Err("Unable to set Y axis");
-    }
-    
-    println!("Set joystick: x = {} y = {}", x_strength, y_strength);
-    println!("Scaled for power, that's x = {} y = {}", x, y);
     
     Ok(())
 }
 
-pub fn set_button(controller: &VirtualN64Controller, button: VirtualN64ControllerButton, value: bool) -> bool {
-    if !(set_vjoystick_button(controller.props.vjoy_device_number, button.get_vjoy_button_index(), value as libc::c_int)) {
-        println!("Setting button failed!");
-        return false;
-    }
+pub fn set_button(controller: &VirtualN64Controller, button: VirtualN64ControllerButton, value: bool) -> Result<(), &'static str> {
+    match set_vjoystick_button(controller.props.vjoy_device_number, button.get_vjoy_button_index(), value as libc::c_int) {
+        Ok(_) => (),
+        Err(_) => return Err("Unable to set virtual joystick button")
+    };
+    //@todo update controller state... how can we cleanly map VirtualN64ControllerButton to the state struct?
     
-    println!("Set button {:?} to {}", button, value as libc::c_int);
-    
-    return true;
+    Ok(())
 }
