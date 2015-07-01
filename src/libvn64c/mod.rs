@@ -6,9 +6,6 @@ mod vjoyinterface;
 extern crate std;
 extern crate libc;
 
-// Hardcode the vJoy virtual joystick index of whatever joystick our emulator listens to
-const VJOY_DEVICE_NUMBER: libc::c_uint = 1;
-
 // Number of digital inputs on a standard N64 controller
 const NUM_N64_BUTTONS: u8 = 14;
 
@@ -16,22 +13,6 @@ const NUM_N64_BUTTONS: u8 = 14;
 // USB HID joystick constants. We assume our emulator is configured to map virtual joystick to N64 joystick
 const HID_JOYSTICK_X: libc::c_uint = 0x30;
 const HID_JOYSTICK_Y: libc::c_uint = 0x31;
-
-// Default emulator button bindings. vJoy is one-based with buttons.
-const BUTTON_A: libc::c_uchar = 0x01;
-const BUTTON_B: libc::c_uchar = 0x02;
-const BUTTON_Z: libc::c_uchar = 0x03;
-const BUTTON_L: libc::c_uchar = 0x04;
-const BUTTON_R: libc::c_uchar = 0x05;
-const BUTTON_START: libc::c_uchar = 0x06;
-const BUTTON_CUP: libc::c_uchar = 0x07;
-const BUTTON_CDOWN: libc::c_uchar = 0x08;
-const BUTTON_CLEFT: libc::c_uchar = 0x09;
-const BUTTON_CRIGHT: libc::c_uchar = 0x10;
-const BUTTON_DUP: libc::c_uchar = 0x11;
-const BUTTON_DDOWN: libc::c_uchar = 0x12;
-const BUTTON_DLEFT: libc::c_uchar = 0x13;
-const BUTTON_DRIGHT: libc::c_uchar = 0x14;
 
 #[derive(Debug)]
 pub enum VirtualN64ControllerButton {
@@ -51,39 +32,61 @@ pub enum VirtualN64ControllerButton {
     Dright
 }
 
+// Default emulator button bindings. vJoy button indices are one-based
+impl VirtualN64ControllerButton {
+    fn get_vjoy_button_index(&self) -> libc::c_uchar {
+        match *self {
+            VirtualN64ControllerButton::A => 0x01,
+            VirtualN64ControllerButton::B => 0x02,
+            VirtualN64ControllerButton::Z => 0x03,
+            VirtualN64ControllerButton::L => 0x04,
+            VirtualN64ControllerButton::R => 0x05,
+            VirtualN64ControllerButton::Start => 0x06,
+            VirtualN64ControllerButton::Cup => 0x07,
+            VirtualN64ControllerButton::Cdown => 0x08,
+            VirtualN64ControllerButton::Cleft => 0x09,
+            VirtualN64ControllerButton::Cright => 0x10,
+            VirtualN64ControllerButton::Dup => 0x11,
+            VirtualN64ControllerButton::Ddown => 0x12,
+            VirtualN64ControllerButton::Dleft => 0x13,
+            VirtualN64ControllerButton::Dright => 0x14
+        }
+    }
+}
+
 // Info about our virtual joystick
 // Post-initialization, this should all be read-only
-pub struct VirtualN64ControllerProps {
-    pub vjoy_device_number: libc::c_uint,
+struct VirtualN64ControllerProps {
+    vjoy_device_number: libc::c_uint,
     
-    pub x_min: libc::c_long,
-    pub x_max: libc::c_long,
-    pub y_min: libc::c_long,
-    pub y_max: libc::c_long,
+    x_min: libc::c_long,
+    x_max: libc::c_long,
+    y_min: libc::c_long,
+    y_max: libc::c_long,
 }
 
 // Last-set values
-pub struct VirtualN64ControllerState {
-    pub x: libc::c_long,
-    pub y: libc::c_long,
-    pub a: libc::c_int,
-    pub b: libc::c_int,
-    pub z: libc::c_int,
-    pub l: libc::c_int,
-    pub r: libc::c_int,
-    pub cup: libc::c_int,
-    pub cdown: libc::c_int,
-    pub cleft: libc::c_int,
-    pub cright: libc::c_int,
-    pub dup: libc::c_int,
-    pub ddown: libc::c_int,
-    pub dleft: libc::c_int,
-    pub dright: libc::c_int,
+struct VirtualN64ControllerState {
+    x: libc::c_long,
+    y: libc::c_long,
+    a: libc::c_int,
+    b: libc::c_int,
+    z: libc::c_int,
+    l: libc::c_int,
+    r: libc::c_int,
+    cup: libc::c_int,
+    cdown: libc::c_int,
+    cleft: libc::c_int,
+    cright: libc::c_int,
+    dup: libc::c_int,
+    ddown: libc::c_int,
+    dleft: libc::c_int,
+    dright: libc::c_int,
 }
 
 pub struct VirtualN64Controller {
-    pub props: VirtualN64ControllerProps,
-    pub state: VirtualN64ControllerState,
+    props: VirtualN64ControllerProps,
+    state: VirtualN64ControllerState,
 }
 
 impl Default for VirtualN64Controller {
@@ -94,7 +97,7 @@ impl Default for VirtualN64Controller {
                 x_min: 0,
                 x_max: 0,
                 y_min: 0,
-                y_max: 0,
+                y_max: 0
             },
             state: VirtualN64ControllerState {
                 x: 0,
@@ -111,7 +114,7 @@ impl Default for VirtualN64Controller {
                 dup: 0,
                 ddown: 0,
                 dleft: 0,
-                dright: 0,
+                dright: 0
             }
         }
     }
@@ -127,7 +130,7 @@ fn is_vjoy_enabled() -> bool {
         }
     }
     
-    return true;
+    true
 }
 
 fn does_vjoystick_axis_exist(index: libc::c_uint, axis: libc::c_uint) -> bool {
@@ -139,36 +142,32 @@ fn does_vjoystick_axis_exist(index: libc::c_uint, axis: libc::c_uint) -> bool {
         }
     }
     
-    return true;
+    true
 }
 
-//@todo technically should be an Optional, but the button count function never fails sooooooooooo this shouldn't riiiiiiight?
-fn get_vjoystick_axis_min(index: libc::c_uint, axis: libc::c_uint) -> libc::c_long {
+fn get_vjoystick_axis_min(index: libc::c_uint, axis: libc::c_uint) -> Result<libc::c_long, &'static str> {
     unsafe {    
         let mut min: libc::c_long = 0;
         let min_raw_pointer = &mut min as *mut libc::c_long;
         let min_result = vjoyinterface::GetVJDAxisMin(index, axis, min_raw_pointer);
         if min_result == 0 {
-            //@todo return option.absent
+            return Err("Unable to get axis minimum");
         }
         
-        println!("vJoy device {} axis {} min is {}", index, axis, min);
-        return min;
+        Ok(min)
     }
 }
 
-//@todo technically should be an Optional, but the button count function never fails sooooooooooo this shouldn't riiiiiiight?
-fn get_vjoystick_axis_max(index: libc::c_uint, axis: libc::c_uint) -> libc::c_long {
+fn get_vjoystick_axis_max(index: libc::c_uint, axis: libc::c_uint) -> Result<libc::c_long, &'static str> {
     unsafe {    
         let mut max: libc::c_long = 0;
         let max_raw_pointer = &mut max as *mut libc::c_long;
         let max_result = vjoyinterface::GetVJDAxisMax(index, axis, max_raw_pointer);
         if max_result == 0 {
-            //@todo return option.absent
+            return Err("Unable to get axis maximum");
         }
         
-        println!("vJoy device {} axis {} max is {}", index, axis, max);
-        return max;
+        Ok(max)
     }
 }
 
@@ -176,7 +175,7 @@ fn get_vjoystick_button_count(index: libc::c_uint) -> u8 {
     unsafe {
         let num_buttons = vjoyinterface::GetVJDButtonNumber(index);
         println!("vJoy device {} has {} buttons", index, num_buttons);
-        return num_buttons as u8;
+        num_buttons as u8
     }
 }
 
@@ -188,35 +187,35 @@ fn get_vjoystick_status(index: libc::c_uint) -> vjoyinterface::Enum_VjdStat {
     }
 }
 
-fn claim_vjoystick(index: libc::c_uint) -> bool {
+fn claim_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
     unsafe {
         let joystick_status = get_vjoystick_status(index);
         if joystick_status == vjoyinterface::VJD_STAT_FREE {
             // Try to claim it
             let acquire_vjd_result = vjoyinterface::AcquireVJD(index);
             if acquire_vjd_result == 0 {
-                return false;
+                return Err("Virtual joystick is available, but unable to acquire it");
             } else {
-                return true;
+                return Ok(());
             }
         } else if joystick_status == vjoyinterface::VJD_STAT_OWN {
             // We've already claimed it
-            return true;
+            return Ok(());
         }
     }
     
-    return false;
+    return Err("Virtual joystick is owned by someone else, missing, or in unknown state");
 }
 
-fn reset_vjoystick(index: libc::c_uint) -> bool {
+fn reset_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
     unsafe {
         let reset_result = vjoyinterface::ResetVJD(index);
         if reset_result == 0 {
-            return false;
+            return Err("vJoy reset function returned failure");
         }
     }
     
-    return true;
+    return Ok(());
 }
 
 fn set_vjoystick_axis(index: libc::c_uint, axis: libc::c_uint, value: libc::c_long) -> bool {
@@ -251,44 +250,57 @@ fn is_vjoystick_n64(index: libc::c_uint) -> bool {
     return true;
 }
 
-fn populate_vn64c(controller: &mut VirtualN64Controller) -> bool {
-    // Get and capture vjoystick min and max, set default joystick and button values
-    controller.props.x_min = get_vjoystick_axis_min(controller.props.vjoy_device_number, HID_JOYSTICK_X);
-    controller.props.x_max = get_vjoystick_axis_max(controller.props.vjoy_device_number, HID_JOYSTICK_X);
-    controller.props.y_min = get_vjoystick_axis_min(controller.props.vjoy_device_number, HID_JOYSTICK_Y);
-    controller.props.y_max = get_vjoystick_axis_max(controller.props.vjoy_device_number, HID_JOYSTICK_Y);
+// Make a virtual N64 controller given a vJoy device number
+fn make_vn64c(vjoy_device_number: libc::c_uint) -> Result<(VirtualN64Controller), &'static str> {
+    let mut controller = VirtualN64Controller { ..Default::default() };
     
+    controller.props.vjoy_device_number = vjoy_device_number;
+    
+    // Get and capture vjoystick min and max
+    match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_X) {
+        Ok(min) => controller.props.x_min = min,
+        Err(msg) => return Err(msg)
+    };
+    match get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_X) {
+        Ok(max) => controller.props.x_max = max,
+        Err(msg) => return Err(msg)
+    };
+    match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
+        Ok(min) => controller.props.y_min = min,
+        Err(msg) => return Err(msg)
+    };
+    match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
+        Ok(max) => controller.props.y_max = max,
+        Err(msg) => return Err(msg)
+    };
+    
+    // Set joystick values to neutral
     controller.state.x = (controller.props.x_max - controller.props.x_min) / 2;
     controller.state.y = (controller.props.y_max - controller.props.y_min) / 2;
     
-    println!("Device number: {}", controller.props.vjoy_device_number);
-    println!("\tX min: {}", controller.props.x_min);
-    println!("\tX max: {}", controller.props.x_max);
-    println!("\tY min: {}", controller.props.y_min);
-    println!("\tY max: {}", controller.props.y_max);
-    println!("\tX: {}", controller.state.x);
-    println!("\tY: {}", controller.state.y);
-    
-    return true;
+    Ok(controller)
 }
 
 // Exposed functions
 // Initialize a virtual N64 controller
 // After calling this successfully, controller is a valid handle for other functions
-pub fn init() -> Result<VirtualN64Controller, &'static str> {
-    let mut controller = VirtualN64Controller { ..Default::default() };
-    
-    controller.props.vjoy_device_number = VJOY_DEVICE_NUMBER;
+pub fn init(vjoy_device_number: u8) -> Result<VirtualN64Controller, &'static str> {
+    let vjoy_device_number_native = vjoy_device_number as libc::c_uint;
     
     if !is_vjoy_enabled() { return Err("vJoy isn't enabled"); }
-    if !is_vjoystick_n64(controller.props.vjoy_device_number) { return Err("Virtual joystick is not capable of emulating an N64 controller"); }
-    if !claim_vjoystick(controller.props.vjoy_device_number) { return Err("Unable to claim virtual joystick"); }
-    if !reset_vjoystick(controller.props.vjoy_device_number) { return Err("Unable to reset virtual joystick"); }
-    
-    if !populate_vn64c(&mut controller) { return Err("Unable to populate virtual N64 controller"); }
-    
-    Ok(controller)
-    
+    if !is_vjoystick_n64(vjoy_device_number_native) { return Err("Virtual joystick is not capable of emulating an N64 controller"); }
+    match claim_vjoystick(vjoy_device_number_native) {
+        Err(msg) => return Err(msg),
+        _ => ()
+    };
+    match reset_vjoystick(vjoy_device_number_native) {
+        Err(msg) => return Err(msg),
+        _ => ()
+    };
+    match make_vn64c(vjoy_device_number_native) {
+        Err(msg) => Err(msg),
+        Ok(controller) => Ok(controller)
+    }
 }
 
 // Set the virtual joystick, assuming that direction is in degrees and strength is a number 0-1 inclusive
@@ -324,25 +336,7 @@ pub fn set_joystick(controller: &mut VirtualN64Controller, direction: u16, stren
 }
 
 pub fn set_button(controller: &VirtualN64Controller, button: VirtualN64ControllerButton, value: bool) -> bool {
-    //@todo better way to map these?
-    let vjoy_button = match button {
-        VirtualN64ControllerButton::A => BUTTON_A,
-        VirtualN64ControllerButton::B => BUTTON_B,
-        VirtualN64ControllerButton::Z => BUTTON_Z,
-        VirtualN64ControllerButton::L => BUTTON_L,
-        VirtualN64ControllerButton::R => BUTTON_R,
-        VirtualN64ControllerButton::Start => BUTTON_START,
-        VirtualN64ControllerButton::Cup => BUTTON_CUP,
-        VirtualN64ControllerButton::Cdown => BUTTON_CDOWN,
-        VirtualN64ControllerButton::Cleft => BUTTON_CLEFT,
-        VirtualN64ControllerButton::Cright => BUTTON_CRIGHT,
-        VirtualN64ControllerButton::Dup => BUTTON_DUP,
-        VirtualN64ControllerButton::Ddown => BUTTON_DDOWN,
-        VirtualN64ControllerButton::Dleft => BUTTON_DLEFT,
-        VirtualN64ControllerButton::Dright => BUTTON_DRIGHT
-    };
-    
-    if !(set_vjoystick_button(controller.props.vjoy_device_number, vjoy_button, value as libc::c_int)) {
+    if !(set_vjoystick_button(controller.props.vjoy_device_number, button.get_vjoy_button_index(), value as libc::c_int)) {
         println!("Setting button failed!");
         return false;
     }

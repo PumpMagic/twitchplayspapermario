@@ -17,7 +17,7 @@ const CONFIG_FILE_PATH: &'static str = "tppm.toml";
 #[test]
 fn it_works() {
     // Initialize a virtual N64 controller
-    let mut controller = match libvn64c::init() {
+    let mut controller = match libvn64c::init(1) {
         Ok(controller) => controller,
         Err(msg) => panic!("Unable to initialize controller: {}!", msg),
     };
@@ -36,10 +36,10 @@ fn it_works() {
     let channel = String::from(toml_tree.lookup("irc.channel").unwrap().as_str().unwrap());
     
     // Start our IRC listener
-    let rx = libirc::start(server, pass, nick, channel).unwrap();
+    let irc_message_receiver = libirc::start(server, pass, nick, channel).unwrap();
     
     loop {
-        let received_value = rx.recv().unwrap();
+        let received_value = irc_message_receiver.recv().unwrap();
         
         //@todo understand as_ref()
         match received_value.get(1).unwrap().as_ref() {
