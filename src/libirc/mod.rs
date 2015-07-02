@@ -3,7 +3,6 @@
 use std::net::TcpStream;
 use std::io::Read;
 use std::io::Write;
-use std::str;
 use std::str::FromStr;
 use std::thread;
 use std::sync::mpsc;
@@ -151,7 +150,7 @@ fn last_two_are_crlf(myvec: &Vec<u8>) -> bool {
 }
 
 // Get a message from an IRC channel.
-fn get_message_from_stream(stream: &mut TcpStream) -> Message {
+fn get_message(stream: &mut TcpStream) -> Message {
     // Receive a message from the server as raw bytes.
     // We'll convert it to a String once we've received the whole thing, to simplify parsing
     let mut response: Vec<u8> = Vec::new();
@@ -186,6 +185,48 @@ fn get_message_from_stream(stream: &mut TcpStream) -> Message {
     parse_message(msg_str)
 }
 
+// Consider making a Message serializer...
+fn send_message(stream: &mut TcpStream, command: &String, params: Option<&String>) -> Result<(), ()> {
+    let mut message_string = String::new();
+    message_string.push_str(command);
+    message_string.push_str(" ");
+    if params.is_some() {
+        message_string.push_str(params.unwrap());
+    }
+    message_string.push_str("\r\n");
+    
+    match stream.write_all(message_string.as_bytes()) {
+        Ok(_) => Ok(()),
+        Err(err) => Err(())
+    }
+}
+
+fn send_credentials(stream: &mut TcpStream, pass: &String, nick: &String) -> Result<(), ()> {
+    let pass_string = FromStr::from_str("PASS").unwrap();
+    let nick_string = FromStr::from_str("NICK").unwrap();
+    
+    try!(send_message(stream, &pass_string, Some(pass)));
+    try!(send_message(stream, &nick_string, Some(nick)));
+    
+    Ok(())
+}
+
+fn send_join(stream: &mut TcpStream, channel: &String) -> Result<(), ()> {
+    let join_string = FromStr::from_str("JOIN").unwrap();
+    
+    try!(send_message(stream, &join_string, Some(channel)));
+    
+    Ok(())
+}
+
+fn send_pong(stream: &mut TcpStream) -> Result<(), ()> {
+    let pong_string = FromStr::from_str("PONG").unwrap();
+    
+    try!(send_message(stream, &pong_string, None));
+    
+    Ok(())
+}
+
 //@todo document
 pub fn start(server: String, pass: String, nick: String, channel: String) -> Result<mpsc::Receiver<Vec<String>>, &'static str> {
     let (tx, rx) = mpsc::channel();
@@ -194,24 +235,17 @@ pub fn start(server: String, pass: String, nick: String, channel: String) -> Res
         // Connect to the IRC server
         let mut stream = TcpStream::connect(&server[..]).unwrap();
 
-        // Send the server our nick and user
-        //@todo make these functions
-        let mut pass_string = String::new();
-        pass_string.push_str("PASS ");
-        pass_string.push_str(&pass[..]);
-        pass_string.push_str("\r\n");
-        stream.write_all(pass_string.as_bytes());
-
-        let mut nick_string = String::new();
-        nick_string.push_str("NICK ");
-        nick_string.push_str(&nick[..]);
-        nick_string.push_str("\r\n");
-        stream.write_all(nick_string.as_bytes());
+        // Send the server our credentials
+        //@todo implement send failure recovery
+        match send_credentials(&mut stream, &pass, &nick) {
+            Ok(_) => (),
+            Err(_) => panic!("Unable to send credentials!")
+        };
         
         let mut sent_join = false;
         
         loop {
-            let m = get_message_from_stream(&mut stream);
+            let m = get_message(&mut stream);
             if m.command.is_none() {
                 println!("Ignoring message with unidentified command...");
             } else {
@@ -236,18 +270,20 @@ pub fn start(server: String, pass: String, nick: String, channel: String) -> Res
                     Command::ReplyWelcome => {
                         // Ready to join!
                         //@TODO there must be a better sign that the server likes our pipe now?
+                        //@todo join failure recovery
                         if sent_join == false {
-                            println!("Server welcomed us. Joining target channel");
-                            let mut join_string = String::new();
-                            join_string.push_str("JOIN ");
-                            join_string.push_str(&channel[..]);
-                            join_string.push_str("\r\n");
-                            stream.write_all(join_string.as_bytes());
+                            match send_join(&mut stream, &channel) {
+                                Ok(_) => (),
+                                Err(_) => panic!("Unable to join target channel!")
+                            };
                             sent_join = true;
                         }
                     },
                     Command::Ping => {
-                        stream.write_all("PONG\r\n".as_bytes());
+                        match send_pong(&mut stream) {
+                            Ok(_) => (),
+                            Err(_) => panic!("Unable to send pong!")
+                        };
                     },
                     //Command::Unknown => println!("Got unknown!"),
                     Command::Privmsg => {
