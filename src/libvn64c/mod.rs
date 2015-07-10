@@ -123,26 +123,26 @@ impl Default for VirtualN64Controller {
 }
 
 // vJoy device utility functions
-fn is_vjoy_enabled() -> bool {
+fn get_vjoy_is_enabled() -> Result<bool, ()> {
     unsafe {
         let vjoy_enabled = vjoyinterface::vJoyEnabled();
         if vjoy_enabled == 0 {
-            return false;
+            Ok(false)
+        } else {
+            Ok(true)
         }
     }
-    
-    true
 }
 
-fn does_vjoystick_axis_exist(index: libc::c_uint, axis: libc::c_uint) -> bool {
+fn get_vjoystick_axis_exists(index: libc::c_uint, axis: libc::c_uint) -> Result<bool, ()> {
     unsafe {
         let axis_exists = vjoyinterface::GetVJDAxisExist(index, axis);
         if axis_exists == 0 {
-            return false;
+            Ok(false)
+        } else {
+            Ok(true)
         }
     }
-    
-    true
 }
 
 fn get_vjoystick_axis_min(index: libc::c_uint, axis: libc::c_uint) -> Result<libc::c_long, &'static str> {
@@ -151,10 +151,10 @@ fn get_vjoystick_axis_min(index: libc::c_uint, axis: libc::c_uint) -> Result<lib
         let min_raw_pointer = &mut min as *mut libc::c_long;
         let min_result = vjoyinterface::GetVJDAxisMin(index, axis, min_raw_pointer);
         if min_result == 0 {
-            return Err("Unable to get axis minimum");
+            Err("Unable to get axis minimum")
+        } else {
+            Ok(min)
         }
-        
-        Ok(min)
     }
 }
 
@@ -164,18 +164,18 @@ fn get_vjoystick_axis_max(index: libc::c_uint, axis: libc::c_uint) -> Result<lib
         let max_raw_pointer = &mut max as *mut libc::c_long;
         let max_result = vjoyinterface::GetVJDAxisMax(index, axis, max_raw_pointer);
         if max_result == 0 {
-            return Err("Unable to get axis maximum");
+            Err("Unable to get axis maximum: does the axis exist?")
+        } else {
+            Ok(max)
         }
-        
-        Ok(max)
     }
 }
 
-fn get_vjoystick_button_count(index: libc::c_uint) -> u8 {
+fn get_vjoystick_button_count(index: libc::c_uint) -> Result<u8, ()> {
     unsafe {
         let num_buttons = vjoyinterface::GetVJDButtonNumber(index);
         
-        num_buttons as u8
+        Ok(num_buttons as u8)
     }
 }
 
@@ -240,14 +240,37 @@ fn set_vjoystick_button(index: libc::c_uint, button: libc::c_uchar, value: libc:
     Ok(())
 }
 
-// Test if a vJoy device has the controls we need to treat it like an N64 controller
+// Verify that a vJoy device has the controls we need to treat it like an N64 controller
 // If this fails, the vJoy device should be configured manually using vJoy's supplied configuration tool
-fn is_vjoystick_n64(index: libc::c_uint) -> bool {
-    if !does_vjoystick_axis_exist(index, HID_JOYSTICK_X) { return false; }
-    if !does_vjoystick_axis_exist(index, HID_JOYSTICK_Y) { return false; }
-    if !(get_vjoystick_button_count(index) >= NUM_N64_BUTTONS) { return false; }
+fn verify_vjoystick_as_n64(index: libc::c_uint) -> Result<(), String> {
+    match get_vjoystick_axis_exists(index, HID_JOYSTICK_X) {
+        Ok(exists) => {
+            if exists == false {
+                return Err(format!("No X axis"));
+            }
+        },
+        Err(()) => return Err(format!("Unable to check for X axis"))
+    }
+
+    match get_vjoystick_axis_exists(index, HID_JOYSTICK_Y) {
+        Ok(exists) => {
+            if exists == false {
+                return Err(format!("No Y axis"));
+            }
+        },
+        Err(()) => return Err(format!("Unable to check for Y axis"))
+    }
+
+    match get_vjoystick_button_count(index) {
+        Ok(buttons) => {
+            if buttons < NUM_N64_BUTTONS {
+                return Err(format!("Less than {} buttons", NUM_N64_BUTTONS));
+            }
+        },
+        Err(()) => return Err(format!("Unable to get button count"))
+    }
     
-    true
+    Ok(())
 }
 
 // Make a virtual N64 controller given a vJoy device number
@@ -284,21 +307,37 @@ fn make_vn64c(vjoy_device_number: libc::c_uint) -> Result<(VirtualN64Controller)
 // Exposed functions
 // Initialize a virtual N64 controller
 // After calling this successfully, controller is a valid handle for other functions
-pub fn init(vjoy_device_number: u8) -> Result<VirtualN64Controller, &'static str> {
+pub fn init(vjoy_device_number: u8) -> Result<VirtualN64Controller, String> {
     let vjoy_device_number_native = vjoy_device_number as libc::c_uint;
-    
-    if !is_vjoy_enabled() { return Err("vJoy isn't enabled"); }
-    if !is_vjoystick_n64(vjoy_device_number_native) { return Err("Virtual joystick is not capable of emulating an N64 controller"); }
+
+    match get_vjoy_is_enabled() {
+        Ok(val) => {
+            if val == false {
+                return Err(format!("vJoy isn't enabled. Have you installed vJoy?"));
+            }
+        },
+        Err(err) => return Err(format!("Unable to check if vJoy is enabled. Have you installed vJoy?"))
+    }
+
+    match verify_vjoystick_as_n64(vjoy_device_number_native) {
+        Ok(()) => (),
+        Err(err) => return Err(format!("Virtual joystick {} can't act as an N64 controller: {}.\
+                                        You may need to reconfigure your vJoy device",
+                                       vjoy_device_number, err))
+    }
+
     match claim_vjoystick(vjoy_device_number_native) {
-        Err(msg) => return Err(msg),
+        Err(msg) => return Err(format!("{}", msg)),
         _ => ()
-    };
+    }
+
     match reset_vjoystick(vjoy_device_number_native) {
-        Err(msg) => return Err(msg),
+        Err(msg) => return Err(format!("{}", msg)),
         _ => ()
-    };
+    }
+
     match make_vn64c(vjoy_device_number_native) {
-        Err(msg) => Err(msg),
+        Err(msg) => Err(format!("{}", msg)),
         Ok(controller) => Ok(controller)
     }
 }

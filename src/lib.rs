@@ -19,10 +19,7 @@ const CONFIG_FILE_PATH: &'static str = "tppm.toml";
 #[test]
 fn it_works() {
     // Initialize a virtual N64 controller
-    let mut controller = match libvn64c::init(1) {
-        Ok(controller) => controller,
-        Err(msg) => panic!("Unable to initialize controller: {}!", msg),
-    };
+    let mut controller = libvn64c::init(1).unwrap();
 
     // Parse our configuration file
     let mut config_file = File::open(CONFIG_FILE_PATH).unwrap();
