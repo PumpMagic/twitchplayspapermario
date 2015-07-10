@@ -1,3 +1,5 @@
+#![allow(unused_must_use)]
+
 mod libirc;
 mod libvn64c;
 
@@ -36,29 +38,29 @@ fn it_works() {
     let channel = String::from(toml_tree.lookup("irc.channel").unwrap().as_str().unwrap());
     
     // Start our IRC listener
-    let irc_message_receiver = libirc::start(server, pass, nick, channel).unwrap();
+    let (join_handle, receiver) = libirc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
     
     loop {
-        let received_value = irc_message_receiver.recv().unwrap();
+        let received_value = receiver.recv().unwrap();
         
         //@todo understand as_ref()
         match received_value.get(1).unwrap().as_ref() {
             "a" => {
-                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::A, true);
+                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::A, true);
                 thread::sleep_ms(500);
-                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::A, false);
+                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::A, false);
                 thread::sleep_ms(200);
             },
             "b" => {
-                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::B, true);
+                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::B, true);
                 thread::sleep_ms(500);
-                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::B, false);
+                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::B, false);
                 thread::sleep_ms(200);
             },
             "start" => {
-                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::Start, true);
+                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::Start, true);
                 thread::sleep_ms(200);
-                libvn64c::set_button(&controller, libvn64c::VirtualN64ControllerButton::Start, false);
+                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::Start, false);
                 thread::sleep_ms(200);
             },
             "up" => { libvn64c::set_joystick(&mut controller, 90, 0.5); },

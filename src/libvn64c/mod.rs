@@ -74,6 +74,7 @@ struct VirtualN64ControllerState {
     z: libc::c_int,
     l: libc::c_int,
     r: libc::c_int,
+    start: libc::c_int,
     cup: libc::c_int,
     cdown: libc::c_int,
     cleft: libc::c_int,
@@ -107,6 +108,7 @@ impl Default for VirtualN64Controller {
                 z: 0,
                 l: 0,
                 r: 0,
+                start: 0,
                 cup: 0,
                 cdown: 0,
                 cleft: 0,
@@ -332,12 +334,30 @@ pub fn set_joystick(controller: &mut VirtualN64Controller, direction: u16, stren
     Ok(())
 }
 
-pub fn set_button(controller: &VirtualN64Controller, button: VirtualN64ControllerButton, value: bool) -> Result<(), &'static str> {
-    match set_vjoystick_button(controller.props.vjoy_device_number, button.get_vjoy_button_index(), value as libc::c_int) {
+pub fn set_button(controller: &mut VirtualN64Controller, button: VirtualN64ControllerButton, value: bool) -> Result<(), &'static str> {
+    let valc = value as libc::c_int;
+    
+    match set_vjoystick_button(controller.props.vjoy_device_number, button.get_vjoy_button_index(), valc) {
         Ok(_) => (),
         Err(_) => return Err("Unable to set virtual joystick button")
     };
-    //@todo update controller state... how can we cleanly map VirtualN64ControllerButton to the state struct?
+    
+    match button {
+        VirtualN64ControllerButton::A => controller.state.a = valc,
+        VirtualN64ControllerButton::B => controller.state.b = valc,
+        VirtualN64ControllerButton::Z => controller.state.z = valc,
+        VirtualN64ControllerButton::L => controller.state.l = valc,
+        VirtualN64ControllerButton::R => controller.state.r = valc,
+        VirtualN64ControllerButton::Start => controller.state.start = valc,
+        VirtualN64ControllerButton::Cup => controller.state.cup = valc,
+        VirtualN64ControllerButton::Cdown => controller.state.cdown = valc,
+        VirtualN64ControllerButton::Cleft => controller.state.cleft = valc,
+        VirtualN64ControllerButton::Cright => controller.state.cright = valc,
+        VirtualN64ControllerButton::Dup => controller.state.dup = valc,
+        VirtualN64ControllerButton::Ddown => controller.state.ddown = valc,
+        VirtualN64ControllerButton::Dleft => controller.state.dleft = valc,
+        VirtualN64ControllerButton::Dright => controller.state.dright = valc
+    };
     
     Ok(())
 }
