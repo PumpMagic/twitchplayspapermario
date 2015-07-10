@@ -19,7 +19,7 @@ const CONFIG_FILE_PATH: &'static str = "tppm.toml";
 #[test]
 fn it_works() {
     // Initialize a virtual N64 controller
-    let mut controller = libvn64c::init(1).unwrap();
+    let mut controller = libvn64c::VirtualN64Controller::new(1).unwrap();
 
     // Parse our configuration file
     let mut config_file = File::open(CONFIG_FILE_PATH).unwrap();
@@ -43,27 +43,27 @@ fn it_works() {
         //@todo understand as_ref()
         match received_value.get(1).unwrap().as_ref() {
             "a" => {
-                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::A, true);
+                controller.set_button(libvn64c::VirtualN64ControllerButton::A, true);
                 thread::sleep_ms(500);
-                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::A, false);
+                controller.set_button(libvn64c::VirtualN64ControllerButton::A, false);
                 thread::sleep_ms(200);
             },
             "b" => {
-                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::B, true);
+                controller.set_button(libvn64c::VirtualN64ControllerButton::B, true);
                 thread::sleep_ms(500);
-                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::B, false);
+                controller.set_button(libvn64c::VirtualN64ControllerButton::B, false);
                 thread::sleep_ms(200);
             },
             "start" => {
-                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::Start, true);
+                controller.set_button(libvn64c::VirtualN64ControllerButton::Start, true);
                 thread::sleep_ms(200);
-                libvn64c::set_button(&mut controller, libvn64c::VirtualN64ControllerButton::Start, false);
+                controller.set_button(libvn64c::VirtualN64ControllerButton::Start, false);
                 thread::sleep_ms(200);
             },
-            "up" => { libvn64c::set_joystick(&mut controller, 90, 0.5); },
-            "down" => { libvn64c::set_joystick(&mut controller, 270, 0.5); },
-            "left" => { libvn64c::set_joystick(&mut controller, 180, 0.5); },
-            "right" => { libvn64c::set_joystick(&mut controller, 0, 0.5); },
+            "up" => { controller.set_joystick(90, 0.5); },
+            "down" => { controller.set_joystick(270, 0.5); },
+            "left" => { controller.set_joystick(180, 0.5); },
+            "right" => { controller.set_joystick(0, 0.5); },
             _ => ()
         }
     }
