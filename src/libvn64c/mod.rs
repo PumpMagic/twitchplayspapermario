@@ -123,8 +123,38 @@ impl Default for VirtualN64Controller {
 }
 
 impl VirtualN64Controller {
-    // Initialize a virtual N64 controller
-    // After calling this successfully, controller is a valid handle for other functions
+    // Make a virtual N64 controller given a vJoy device number
+    fn from_vjoy_device_number(vjoy_device_number: libc::c_uint) -> Result<(VirtualN64Controller), &'static str> {
+        let mut controller = VirtualN64Controller { ..Default::default() };
+
+        controller.props.vjoy_device_number = vjoy_device_number;
+
+        // Get and capture vjoystick min and max
+        match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_X) {
+            Ok(min) => controller.props.x_min = min,
+            Err(msg) => return Err(msg)
+        }
+        match get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_X) {
+            Ok(max) => controller.props.x_max = max,
+            Err(msg) => return Err(msg)
+        }
+        match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
+            Ok(min) => controller.props.y_min = min,
+            Err(msg) => return Err(msg)
+        }
+        match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
+            Ok(max) => controller.props.y_max = max,
+            Err(msg) => return Err(msg)
+        }
+
+        // Set joystick values to neutral
+        controller.state.x = (controller.props.x_max - controller.props.x_min) / 2;
+        controller.state.y = (controller.props.y_max - controller.props.y_min) / 2;
+
+        Ok(controller)
+    }
+
+    // Verify that a vJoy device can act as a virtual N64 controller, and if so, return a virtual N64 controller
     pub fn new(vjoy_device_number: u8) -> Result<VirtualN64Controller, String> {
         let vjoy_device_number_native = vjoy_device_number as libc::c_uint;
 
@@ -154,16 +184,21 @@ impl VirtualN64Controller {
             _ => ()
         }
 
-        match make_vn64c(vjoy_device_number_native) {
+        match VirtualN64Controller::from_vjoy_device_number(vjoy_device_number_native) {
             Err(msg) => Err(format!("{}", msg)),
             Ok(controller) => Ok(controller)
         }
     }
 
     // Set the virtual joystick, assuming that direction is in degrees and strength is a number 0-1 inclusive
-    //@todo don't trust controller argument
-    //@todo validate arguments (direction: 0-359, strength: 0-1)
     pub fn set_joystick(&mut self, direction: u16, strength: f32) -> Result<(), &'static str> {
+        if direction > 359 {
+            return Err("Direction must be between 0 and 359");
+        }
+        if strength < 0.0 || strength > 1.0 {
+            return Err("Strength must be between 0 and 1");
+        }
+
         // Convert direction from degrees to radians
         let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
 
@@ -220,7 +255,7 @@ impl VirtualN64Controller {
     }
 }
 
-// vJoy device utility functions
+// vJoy wrapper functions
 fn get_vjoy_is_enabled() -> Result<bool, ()> {
     unsafe {
         let vjoy_enabled = vjoyinterface::vJoyEnabled();
@@ -244,7 +279,7 @@ fn get_vjoystick_axis_exists(index: libc::c_uint, axis: libc::c_uint) -> Result<
 }
 
 fn get_vjoystick_axis_min(index: libc::c_uint, axis: libc::c_uint) -> Result<libc::c_long, &'static str> {
-    unsafe {    
+    unsafe {
         let mut min: libc::c_long = 0;
         let min_raw_pointer = &mut min as *mut libc::c_long;
         let min_result = vjoyinterface::GetVJDAxisMin(index, axis, min_raw_pointer);
@@ -257,7 +292,7 @@ fn get_vjoystick_axis_min(index: libc::c_uint, axis: libc::c_uint) -> Result<lib
 }
 
 fn get_vjoystick_axis_max(index: libc::c_uint, axis: libc::c_uint) -> Result<libc::c_long, &'static str> {
-    unsafe {    
+    unsafe {
         let mut max: libc::c_long = 0;
         let max_raw_pointer = &mut max as *mut libc::c_long;
         let max_result = vjoyinterface::GetVJDAxisMax(index, axis, max_raw_pointer);
@@ -272,7 +307,7 @@ fn get_vjoystick_axis_max(index: libc::c_uint, axis: libc::c_uint) -> Result<lib
 fn get_vjoystick_button_count(index: libc::c_uint) -> Result<u8, ()> {
     unsafe {
         let num_buttons = vjoyinterface::GetVJDButtonNumber(index);
-        
+
         Ok(num_buttons as u8)
     }
 }
@@ -280,7 +315,7 @@ fn get_vjoystick_button_count(index: libc::c_uint) -> Result<u8, ()> {
 fn get_vjoystick_status(index: libc::c_uint) -> vjoyinterface::Enum_VjdStat {
     unsafe {
         let joystick_status = vjoyinterface::GetVJDStatus(index);
-        
+
         joystick_status
     }
 }
@@ -301,7 +336,7 @@ fn claim_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
             return Ok(());
         }
     }
-    
+
     Err("Virtual joystick is owned by someone else, missing, or in unknown state")
 }
 
@@ -312,7 +347,7 @@ fn reset_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
             return Err("vJoy reset function returned failure");
         }
     }
-    
+
     Ok(())
 }
 
@@ -323,7 +358,7 @@ fn set_vjoystick_axis(index: libc::c_uint, axis: libc::c_uint, value: libc::c_lo
             return Err(());
         }
     }
-    
+
     Ok(())
 }
 
@@ -334,7 +369,7 @@ fn set_vjoystick_button(index: libc::c_uint, button: libc::c_uchar, value: libc:
             return Err(());
         }
     }
-    
+
     Ok(())
 }
 
@@ -367,37 +402,6 @@ fn verify_vjoystick_as_n64(index: libc::c_uint) -> Result<(), String> {
         },
         Err(()) => return Err(format!("Unable to get button count"))
     }
-    
-    Ok(())
-}
 
-// Make a virtual N64 controller given a vJoy device number
-fn make_vn64c(vjoy_device_number: libc::c_uint) -> Result<(VirtualN64Controller), &'static str> {
-    let mut controller = VirtualN64Controller { ..Default::default() };
-    
-    controller.props.vjoy_device_number = vjoy_device_number;
-    
-    // Get and capture vjoystick min and max
-    match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_X) {
-        Ok(min) => controller.props.x_min = min,
-        Err(msg) => return Err(msg)
-    };
-    match get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_X) {
-        Ok(max) => controller.props.x_max = max,
-        Err(msg) => return Err(msg)
-    };
-    match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
-        Ok(min) => controller.props.y_min = min,
-        Err(msg) => return Err(msg)
-    };
-    match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
-        Ok(max) => controller.props.y_max = max,
-        Err(msg) => return Err(msg)
-    };
-    
-    // Set joystick values to neutral
-    controller.state.x = (controller.props.x_max - controller.props.x_min) / 2;
-    controller.state.y = (controller.props.y_max - controller.props.y_min) / 2;
-    
-    Ok(controller)
+    Ok(())
 }
