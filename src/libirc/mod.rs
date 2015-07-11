@@ -204,7 +204,7 @@ impl IrcConnection {
                 }
                 
                 let m = irc_connection_internal.get_message();
-                println!("\t\t::prefix:: {:?} ::command:: {:?}: ::params::{:?}", m.prefix, m.command, m.params);
+                println!("\t\t::prefix:: {:?} ::command:: {:?}: ::params::{:?}\n", m.prefix, m.command, m.params);
                 match m.command {
                     // as a bot, all we really care about is:
                     // did the server ping us? if so, pong it
