@@ -34,11 +34,11 @@ fn it_works() {
     let nick = String::from(toml_tree.lookup("irc.nick").unwrap().as_str().unwrap());
     let channel = String::from(toml_tree.lookup("irc.channel").unwrap().as_str().unwrap());
     
-    // Start our IRC listener
-    let (join_handle, receiver, tx_kill) = libirc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
+    // Start our IRC connection
+    let irc_connection = libirc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
     
     loop {
-        let received_value = receiver.recv().unwrap();
+        let received_value = irc_connection.receive_privmsg();
         
         //@todo understand as_ref()
         match received_value.get(1).unwrap().as_ref() {
