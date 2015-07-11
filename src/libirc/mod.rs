@@ -164,35 +164,28 @@ pub struct IrcConnection {
 }
 
 impl IrcConnection {
-    pub fn join(self) {
-        self.join_handle.join();
-    }
-    
-    pub fn receive_privmsg(&self) -> Vec<String> {
-        self.rx_privmsg.recv().unwrap()
-    }
-    
-    pub fn kill(&self) {
-        self.tx_kill.send(());
-    }
-    
     pub fn spawn(server: String, pass: String, nick: String, channel: String) -> Result<IrcConnection, ()> {
+        // Establish a TCP stream with our target server
         let stream = match TcpStream::connect(&server[..]) {
             Ok(stream) => stream,
             Err(_) => return Err(())
         };
         
-        // Create two channels - one for passing received privmsgs to our user app, and one for
-        // listening from our user app for a kill command
-        let (tx, rx) = mpsc::channel();
+        // Create two application-local channels: one for passing received privmsgs to our user app,
+        // and one for listening from our user app for a kill command
+        let (tx_privmsg, rx_privmsg) = mpsc::channel();
         let (tx_kill, rx_kill) = mpsc::channel();
         
+        // We're going to spawn a thread that services an IRC connection - we contain all of the
+        // information that thread will need in an "internal" IRC connection struct and give it
+        // ownership of that struct
         let irc_connection_internal = IrcConnectionInternal { tcp_stream: stream, server: server, pass: pass, nick: nick, channel: channel };
         
-        // Spawn a thread that manages an IRC connection and passes through chat messages (privmsgs)
+        // Spawn an IRC connection servicing thread. This thread maintains an IRC connection and
+        // passes chat messages (privmsgs) through one of its channels
         let join_handle = thread::spawn(move|| {
             // Send the server our credentials
-            //@todo implement log in procedure failure recovery
+            //@todo implement log in failure recovery
             match irc_connection_internal.send_credentials() {
                 Ok(_) => (),
                 Err(_) => panic!("Unable to send credentials!")
@@ -204,7 +197,7 @@ impl IrcConnection {
             }
             
             loop {
-                // Check for kill signal; kill this thread if kill signal received
+                // Check for kill signal; kill this thread if received
                 match rx_kill.try_recv() {
                     Ok(()) => return,
                     Err(_) => ()
@@ -215,7 +208,7 @@ impl IrcConnection {
                 match m.command {
                     // as a bot, all we really care about is:
                     // did the server ping us? if so, pong it
-                    // did another client send a message? if so, report it to our user
+                    // did another client send a message? if so, pass it to our user
                     Command::Ping => {
                         match irc_connection_internal.send_pong() {
                             Ok(_) => (),
@@ -230,7 +223,7 @@ impl IrcConnection {
                                 }
                                 
                                 if params.len() > 0 {
-                                    match tx.send(params) {
+                                    match tx_privmsg.send(params) {
                                         Ok(_) => (),
                                         Err(err) => println!("Error sending received IRC message to user\
                                                               app: {}", err)
@@ -245,9 +238,20 @@ impl IrcConnection {
             }
         });
         
-        Ok( IrcConnection { join_handle: join_handle, rx_privmsg: rx, tx_kill: tx_kill } )
+        Ok( IrcConnection { join_handle: join_handle, rx_privmsg: rx_privmsg, tx_kill: tx_kill } )
     }
-
+    
+    pub fn join(self) {
+        self.join_handle.join();
+    }
+    
+    pub fn receive_privmsg(&self) -> Vec<String> {
+        self.rx_privmsg.recv().unwrap()
+    }
+    
+    pub fn kill(&self) {
+        self.tx_kill.send(());
+    }
 }
 
 struct IrcConnectionInternal {
@@ -296,7 +300,7 @@ impl IrcConnectionInternal {
 
             match IrcMessage::from_string(msg_str) {
                 Some(msg) => return msg,
-                _ => () // the byte string we received couldn't be parsed as a valid IRC message
+                _ => () // the string we received couldn't be parsed as a valid IRC message
             }
         }
     }
