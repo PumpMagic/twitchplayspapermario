@@ -13,8 +13,12 @@ use regex::Regex;
 #[derive(Debug)]
 enum Command {
     ReplyWelcome,
+    Pass,
+    Nick,
+    Join,
     Privmsg,
     Ping,
+    Pong,
     Unknown
 }
 
@@ -22,8 +26,12 @@ impl Command {
     fn as_str(&self) -> &'static str {
         match *self {
             Command::ReplyWelcome => "RPL_WELCOME",
+            Command::Pass => "PASS",
+            Command::Nick => "NICK",
+            Command::Join => "JOIN",
             Command::Privmsg => "PRIVMSG",
             Command::Ping => "PING",
+            Command::Pong => "PONG",
             _ => ""
         }
     }
@@ -36,19 +44,18 @@ impl Command {
             _                       =>  Command::Unknown
         }
     }
-    
-    //@todo add from_str.. possible to combine with as_str() with some sort of bidirectional map?
 }
 
 // A representation of an IRC message
 #[derive(Debug)]
 struct IrcMessage {
     prefix: Option<String>,
-    command: Option<Command>,
+    command: Command,
     params: Option<Vec<String>>
 }
 
 impl IrcMessage {
+    //@todo return an Option - and None if the string isn't a valid IRC message
     fn from_string(msg: String) -> IrcMessage {
         // Parse a UTF-8 string into our own IRC message structure
         
@@ -71,8 +78,8 @@ impl IrcMessage {
             },
 
             command: match command {
-                Some(command) => Some(Command::from_string(command)),
-                _                           =>  None
+                Some(command) => Command::from_string(command),
+                _ =>  panic!("IRC message regex couldn't identify a command") //@todo handle malformed messages gracefully
             },
 
             params: match params {
@@ -112,22 +119,39 @@ impl IrcMessage {
         }
     }
     
+    // Assumes that the last parameter is the trailing parameter
     fn into_string(self) -> String {
         let mut result = String::new();
         
         if self.prefix.is_some() {
+            result.push_str(":");
             result.push_str(&self.prefix.unwrap());
+            result.push_str(" ");
         }
         
-        if self.command.is_some() {
-            result.push_str(&self.command.unwrap().as_str());
-        }
+        result.push_str(&self.command.as_str());
+        result.push_str(" ");
         
         if self.params.is_some() {
-            for param in self.params.unwrap() {
+            // C style... is there a better way to identify the last element?
+            let params = self.params.unwrap();
+            let iter = params.iter();
+            let num_params = iter.clone().count();
+            let mut param_on = 0;
+            
+            for param in iter {
+                param_on = param_on + 1;
+                if param_on == num_params {
+                    result.push_str(":");
+                }
                 result.push_str(&param);
+                if param_on != num_params {
+                    result.push_str(" ");
+                }
             }
         }
+        
+        result.push_str("\r\n");
         
         result
     }
@@ -144,89 +168,78 @@ pub struct IrcConnection {
 }
 
 impl IrcConnection {
-    pub fn spawn(server: String, pass: String, nick: String, channel: String) -> Result<(thread::JoinHandle<()>, mpsc::Receiver<Vec<String>>), ()> {
+    pub fn spawn(server: String, pass: String, nick: String, channel: String) -> Result<(thread::JoinHandle<()>, mpsc::Receiver<Vec<String>>, mpsc::Sender<()>), ()> {
         let stream = match TcpStream::connect(&server[..]) {
             Ok(stream) => stream,
             Err(_) => return Err(())
         };
         
-        let irc_connection = IrcConnection { tcp_stream: stream, server: server, pass: pass, nick: nick, channel: channel };
         let (tx, rx) = mpsc::channel();
+        let (tx_kill, rx_kill) = mpsc::channel();
+        
+        let irc_connection = IrcConnection { tcp_stream: stream, server: server, pass: pass, nick: nick, channel: channel };
         
         // Spawn a thread that manages an IRC connection and passes through chat messages (privmsgs)
         let join_handle = thread::spawn(move|| {
             // Send the server our credentials
-            //@todo implement send failure recovery
+            //@todo implement log in procedure failure recovery
             match irc_connection.send_credentials() {
                 Ok(_) => (),
                 Err(_) => panic!("Unable to send credentials!")
-            };
+            }
             
-            let mut sent_join = false;
+            match irc_connection.send_join() {
+                Ok(_) => (),
+                Err(_) => panic!("Unable to join target channel!")
+            }
             
             loop {
-                //@todo match rather than if/else
+                // Check for kill signal; kill this thread if kill signal received
+                match rx_kill.try_recv() {
+                    Ok(()) => return,
+                    Err(_) => ()
+                }
+                
                 let m = irc_connection.get_message();
-                if m.command.is_none() {
-                    println!("Ignoring message with unidentified command...");
-                } else {
-                    let null_prefix = String::new();
-                    let mut null_params = Vec::new();
-                    null_params.push(String::new());
-
-                    let prefix = m.prefix.unwrap_or(null_prefix);
-                    let command = m.command.unwrap();
-                    let params = m.params.unwrap_or(null_params);
-
-                    println!("{:?} {:?}: {:?}", prefix, command, params);
-
-                    match command {
-                        // as a bot, all we really care about is:
-                        // does the server consider our channel valid yet? if so, JOIN target channel
-                        // has the server acknowledged our join? (are we in our target channel?)
-                        // did another client send a message? if so, log it and act on it
-                        // did the server ping us? if so, pong it
-                        Command::ReplyWelcome => {
-                            // Ready to join!
-                            //@TODO there must be a better sign that the server likes our pipe now?
-                            //@todo join failure recovery
-                            if sent_join == false {
-                                match irc_connection.send_join() {
-                                    Ok(_) => (),
-                                    Err(_) => panic!("Unable to join target channel!")
-                                };
-                                sent_join = true;
-                            }
-                        },
-                        Command::Ping => {
-                            match irc_connection.send_pong() {
-                                Ok(_) => (),
-                                Err(_) => panic!("Unable to send pong!")
-                            };
-                        },
-                        Command::Privmsg => {
-                            for x in params.iter() {
-                                println!("\t {}", x);
-                            }
-                            
-                            if params.len() > 0 {
-                                match tx.send(params) {
-                                    Ok(_) => (),
-                                    Err(err) => println!("Error sending received IRC message to user\
-                                                          app: {}", err)
-                                };
-                            }
+                //println!("IN  <--\t{:?} {:?}: {:?}", m.prefix, m.command, m.params);
+                match m.command {
+                    // as a bot, all we really care about is:
+                    // did another client send a message? if so, report it to our user
+                    // did the server ping us? if so, pong it
+                    Command::Ping => {
+                        match irc_connection.send_pong() {
+                            Ok(_) => (),
+                            Err(_) => panic!("Unable to send pong!")
                         }
-                        _ => ()
+                    },
+                    Command::Privmsg => {
+                        match m.params {
+                            Some(params) => {
+                                for x in params.iter() {
+                                    println!("\t {}", x);
+                                }
+                                
+                                if params.len() > 0 {
+                                    match tx.send(params) {
+                                        Ok(_) => (),
+                                        Err(err) => println!("Error sending received IRC message to user\
+                                                              app: {}", err)
+                                    };
+                                }
+                            },
+                            _ => ()
+                        }
                     }
+                    _ => ()
                 }
             }
         });
         
-        Ok( (join_handle, rx) )
+        Ok( (join_handle, rx, tx_kill) )
     }
-
+    
     // Get a message from an IRC channel.
+    //@todo make this nonblocking - any way to do this without function-local static?
     fn get_message(&self) -> IrcMessage {
         // Receive a message from the server as raw bytes.
         // We'll convert it to a String once we've received the whole thing, to simplify parsing
@@ -255,19 +268,18 @@ impl IrcConnection {
         // Convert our raw byte vector into a String for easier, native processing
         //@TODO Better handle invalid messages
         let msg_str = String::from_utf8(response).unwrap();
+        
+        println!("IN  <--\t{}", msg_str);
 
         IrcMessage::from_string(msg_str)
     }
 
     // Consider making a Message serializer...
-    fn send_message(&self, command: &String, params: Option<&String>) -> Result<(), ()> {
-        let mut message_string = String::new();
-        message_string.push_str(command);
-        message_string.push_str(" ");
-        if params.is_some() {
-            message_string.push_str(params.unwrap());
-        }
-        message_string.push_str("\r\n");
+    //fn send_message(&self, command: &String, params: Option<&String>) -> Result<(), ()> {
+    fn send_message(&self, message: IrcMessage) -> Result<(), ()> {
+        let message_string = message.into_string();
+        
+        println!("OUT -->\t{}", message_string);
         
         match (&(self.tcp_stream)).write_all(message_string.as_bytes()) {
             Ok(_) => Ok(()),
@@ -276,27 +288,27 @@ impl IrcConnection {
     }
 
     fn send_credentials(&self) -> Result<(), ()> {
-        let pass_string = FromStr::from_str("PASS").unwrap();
-        let nick_string = FromStr::from_str("NICK").unwrap();
+        let pass_message = IrcMessage { prefix: None, command: Command::Pass, params: Some(vec![self.pass.clone()]) };
+        let nick_message = IrcMessage { prefix: None, command: Command::Nick, params: Some(vec![self.nick.clone()]) };
         
-        try!(self.send_message(&pass_string, Some(&self.pass)));
-        try!(self.send_message(&nick_string, Some(&self.nick)));
+        try!(self.send_message(pass_message));
+        try!(self.send_message(nick_message));
         
         Ok(())
     }
 
     fn send_join(&self) -> Result<(), ()> {
-        let join_string = FromStr::from_str("JOIN").unwrap();
+        let join_message = IrcMessage { prefix: None, command: Command::Join, params: Some(vec![self.channel.clone()]) };
         
-        try!(self.send_message(&join_string, Some(&(self.channel))));
+        try!(self.send_message(join_message));
         
         Ok(())
     }
 
     fn send_pong(&self) -> Result<(), ()> {
-        let pong_string = FromStr::from_str("PONG").unwrap();
+        let pong_message = IrcMessage { prefix: None, command: Command::Pong, params: None };
         
-        try!(self.send_message(&pong_string, None));
+        try!(self.send_message(pong_message));
         
         Ok(())
     }

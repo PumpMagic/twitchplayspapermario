@@ -35,7 +35,7 @@ fn it_works() {
     let channel = String::from(toml_tree.lookup("irc.channel").unwrap().as_str().unwrap());
     
     // Start our IRC listener
-    let (join_handle, receiver) = libirc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
+    let (join_handle, receiver, tx_kill) = libirc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
     
     loop {
         let received_value = receiver.recv().unwrap();
