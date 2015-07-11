@@ -55,8 +55,7 @@ struct IrcMessage {
 }
 
 impl IrcMessage {
-    //@todo return an Option - and None if the string isn't a valid IRC message
-    fn from_string(msg: String) -> IrcMessage {
+    fn from_string(msg: String) -> Option<IrcMessage> {
         // Parse a UTF-8 string into our own IRC message structure
         
         // Dissect the message to identify its prefix (if present), its command (if present), and its
@@ -69,9 +68,9 @@ impl IrcMessage {
         let command = cap.name("command");
         let params = cap.name("params");
 
-        // Populate an IrcMessage struct with the fields, splitting up the arguments (if present) into a
-        // list of Strings
-        IrcMessage {
+        // Populate an IrcMessage struct with the fields, splitting up the parameters (if present)
+        // into a list of Strings
+        Some(IrcMessage {
             prefix: match prefix {
                 Some(prefix) => Some(FromStr::from_str(prefix).unwrap()),
                 None => None
@@ -79,7 +78,7 @@ impl IrcMessage {
 
             command: match command {
                 Some(command) => Command::from_string(command),
-                _ =>  panic!("IRC message regex couldn't identify a command") //@todo handle malformed messages gracefully
+                _ =>  return None // our regex couldn't parse a command; the command is mandatory
             },
 
             params: match params {
@@ -116,7 +115,7 @@ impl IrcMessage {
                 },
                 None => None
             }
-        }
+        })
     }
     
     // Assumes that the last parameter is the trailing parameter
@@ -133,7 +132,7 @@ impl IrcMessage {
         result.push_str(" ");
         
         if self.params.is_some() {
-            // C style... is there a better way to identify the last element?
+            // C-style... is there a better way to identify the last element?
             let params = self.params.unwrap();
             let iter = params.iter();
             let num_params = iter.clone().count();
@@ -159,55 +158,59 @@ impl IrcMessage {
 
 
 pub struct IrcConnection {
-    tcp_stream: TcpStream,
-    
-    server: String,
-    pass: String,
-    nick: String,
-    channel: String,
+    join_handle: thread::JoinHandle<()>,
+    rx_privmsg: mpsc::Receiver<Vec<String>>,
+    tx_kill: mpsc::Sender<()>
 }
 
 impl IrcConnection {
-    pub fn spawn(server: String, pass: String, nick: String, channel: String) -> Result<(thread::JoinHandle<()>, mpsc::Receiver<Vec<String>>, mpsc::Sender<()>), ()> {
+    pub fn spawn(server: String, pass: String, nick: String, channel: String) -> Result<IrcConnection, ()> {
+        // Establish a TCP stream with our target server
         let stream = match TcpStream::connect(&server[..]) {
             Ok(stream) => stream,
             Err(_) => return Err(())
         };
         
-        let (tx, rx) = mpsc::channel();
+        // Create two application-local channels: one for passing received privmsgs to our user app,
+        // and one for listening from our user app for a kill command
+        let (tx_privmsg, rx_privmsg) = mpsc::channel();
         let (tx_kill, rx_kill) = mpsc::channel();
         
-        let irc_connection = IrcConnection { tcp_stream: stream, server: server, pass: pass, nick: nick, channel: channel };
+        // We're going to spawn a thread that services an IRC connection - we contain all of the
+        // information that thread will need in an "internal" IRC connection struct and give it
+        // ownership of that struct
+        let irc_connection_internal = IrcConnectionInternal { tcp_stream: stream, server: server, pass: pass, nick: nick, channel: channel };
         
-        // Spawn a thread that manages an IRC connection and passes through chat messages (privmsgs)
+        // Spawn an IRC connection servicing thread. This thread maintains an IRC connection and
+        // passes chat messages (privmsgs) through one of its channels
         let join_handle = thread::spawn(move|| {
             // Send the server our credentials
-            //@todo implement log in procedure failure recovery
-            match irc_connection.send_credentials() {
+            //@todo implement log in failure recovery
+            match irc_connection_internal.send_credentials() {
                 Ok(_) => (),
                 Err(_) => panic!("Unable to send credentials!")
             }
             
-            match irc_connection.send_join() {
+            match irc_connection_internal.send_join() {
                 Ok(_) => (),
                 Err(_) => panic!("Unable to join target channel!")
             }
             
             loop {
-                // Check for kill signal; kill this thread if kill signal received
+                // Check for kill signal; kill this thread if received
                 match rx_kill.try_recv() {
                     Ok(()) => return,
                     Err(_) => ()
                 }
                 
-                let m = irc_connection.get_message();
-                //println!("IN  <--\t{:?} {:?}: {:?}", m.prefix, m.command, m.params);
+                let m = irc_connection_internal.get_message();
+                println!("\t\t::prefix:: {:?} ::command:: {:?}: ::params::{:?}", m.prefix, m.command, m.params);
                 match m.command {
                     // as a bot, all we really care about is:
-                    // did another client send a message? if so, report it to our user
                     // did the server ping us? if so, pong it
+                    // did another client send a message? if so, pass it to our user
                     Command::Ping => {
-                        match irc_connection.send_pong() {
+                        match irc_connection_internal.send_pong() {
                             Ok(_) => (),
                             Err(_) => panic!("Unable to send pong!")
                         }
@@ -220,7 +223,7 @@ impl IrcConnection {
                                 }
                                 
                                 if params.len() > 0 {
-                                    match tx.send(params) {
+                                    match tx_privmsg.send(params) {
                                         Ok(_) => (),
                                         Err(err) => println!("Error sending received IRC message to user\
                                                               app: {}", err)
@@ -235,47 +238,74 @@ impl IrcConnection {
             }
         });
         
-        Ok( (join_handle, rx, tx_kill) )
+        Ok( IrcConnection { join_handle: join_handle, rx_privmsg: rx_privmsg, tx_kill: tx_kill } )
     }
     
+    pub fn join(self) {
+        self.join_handle.join();
+    }
+    
+    pub fn receive_privmsg(&self) -> Vec<String> {
+        self.rx_privmsg.recv().unwrap()
+    }
+    
+    pub fn kill(&self) {
+        self.tx_kill.send(());
+    }
+}
+
+struct IrcConnectionInternal {
+    tcp_stream: TcpStream,
+    
+    server: String,
+    pass: String,
+    nick: String,
+    channel: String,
+}
+
+impl IrcConnectionInternal {
     // Get a message from an IRC channel.
     //@todo make this nonblocking - any way to do this without function-local static?
     fn get_message(&self) -> IrcMessage {
-        // Receive a message from the server as raw bytes.
-        // We'll convert it to a String once we've received the whole thing, to simplify parsing
-        let mut response: Vec<u8> = Vec::new();
-
-        // Read from the TCP stream until we get CRLF (which signals the termination of an IRC message)
-        // or the socket read fails
         loop {
-            let mut read_byte: Vec<u8> = Vec::with_capacity(1);
+            // Receive a message from the server as raw bytes.
+            // We'll convert it to a String once we've received the whole thing, to simplify parsing
+            let mut response: Vec<u8> = Vec::new();
 
-            let read_result = (&(self.tcp_stream)).take(1).read_to_end(&mut read_byte);
-            match read_result {
-                Result::Ok(_) => {
-                    response.push(*(read_byte.get(0).unwrap())); //@todo handle None
-                    if last_two_are_crlf(&response) {
+            // Read from the TCP stream until we get CRLF (which signals the termination of an IRC message)
+            // or the socket read fails
+            loop {
+                let mut read_byte: Vec<u8> = Vec::with_capacity(1);
+
+                let read_result = (&(self.tcp_stream)).take(1).read_to_end(&mut read_byte);
+                match read_result {
+                    Result::Ok(_) => {
+                        response.push(*(read_byte.get(0).unwrap())); //@todo handle None
+                        if last_two_are_crlf(&response) {
+                            break;
+                        }
+                    },
+                    Result::Err(error)      => {
+                        println!("Stream read error: {:?}", error);
                         break;
                     }
-                },
-                Result::Err(error)      => {
-                    println!("Stream read error: {:?}", error);
-                    break;
                 }
             }
+
+            // Convert our raw byte vector into a String for easier, native processing
+            //@TODO Better handle invalid messages
+            let msg_str = String::from_utf8(response).unwrap();
+            
+            println!("IN  <--\t{}", msg_str);
+
+            match IrcMessage::from_string(msg_str) {
+                Some(msg) => return msg,
+                _ => () // the string we received couldn't be parsed as a valid IRC message
+            }
         }
-
-        // Convert our raw byte vector into a String for easier, native processing
-        //@TODO Better handle invalid messages
-        let msg_str = String::from_utf8(response).unwrap();
-        
-        println!("IN  <--\t{}", msg_str);
-
-        IrcMessage::from_string(msg_str)
     }
 
     // Consider making a Message serializer...
-    //fn send_message(&self, command: &String, params: Option<&String>) -> Result<(), ()> {
     fn send_message(&self, message: IrcMessage) -> Result<(), ()> {
         let message_string = message.into_string();
         
@@ -313,6 +343,7 @@ impl IrcConnection {
         Ok(())
     }
 }
+
 
 fn last_two_are_crlf(myvec: &Vec<u8>) -> bool {
     let myvec_len = myvec.len();
