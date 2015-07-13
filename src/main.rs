@@ -16,8 +16,7 @@ use std::io::Read;
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
 
 
-#[test]
-fn it_works() {
+fn main() {
     // Initialize a virtual N64 controller
     let mut controller = libvn64c::VirtualN64Controller::new(1).unwrap();
 
@@ -41,6 +40,7 @@ fn it_works() {
         let received_value = irc_connection.receive_privmsg();
         
         //@todo understand as_ref()
+        //@todo remove this 1 hardcode (which is there to ignore the channel name parameter)
         match received_value.get(1).unwrap().as_ref() {
             "a" => {
                 controller.set_button(libvn64c::VirtualN64ControllerButton::A, true);

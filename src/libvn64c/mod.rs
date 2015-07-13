@@ -142,7 +142,7 @@ impl VirtualN64Controller {
             Ok(min) => controller.props.y_min = min,
             Err(msg) => return Err(msg)
         }
-        match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
+        match get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_Y) {
             Ok(max) => controller.props.y_max = max,
             Err(msg) => return Err(msg)
         }
@@ -223,6 +223,8 @@ impl VirtualN64Controller {
         }
         self.state.y = y;
 
+        self.write_to_console();
+        
         Ok(())
     }
 
@@ -251,7 +253,15 @@ impl VirtualN64Controller {
             VirtualN64ControllerButton::Dright => self.state.dright = valc
         }
 
+        self.write_to_console();
+        
         Ok(())
+    }
+    
+    pub fn write_to_console(&self) {
+        println!("X: {} Y: {} A: {} B: {} Z: {} L: {} R: {} S: {}", self.state.x, self.state.y, self.state.a, self.state.b, self.state.z, self.state.l, self.state.r, self.state.start);
+        //println!("CU: {} CD: {} CL: {} CR: {}", self.state.cup, self.state.cdown, self.state.cleft, self.state.cright);
+        //println!("DU: {} DD: {} DL: {} DR: {}", self.state.dup, self.state.ddown, self.state.dleft, self.state.dright);
     }
 }
 

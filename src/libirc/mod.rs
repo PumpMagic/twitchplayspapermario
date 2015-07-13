@@ -204,7 +204,7 @@ impl IrcConnection {
                 }
                 
                 let m = irc_connection_internal.get_message();
-                println!("\t\t::prefix:: {:?} ::command:: {:?}: ::params::{:?}\n", m.prefix, m.command, m.params);
+                //println!("\t\t::prefix:: {:?} ::command:: {:?}: ::params::{:?}\n", m.prefix, m.command, m.params);
                 match m.command {
                     // as a bot, all we really care about is:
                     // did the server ping us? if so, pong it
@@ -219,7 +219,7 @@ impl IrcConnection {
                         match m.params {
                             Some(params) => {
                                 for x in params.iter() {
-                                    println!("\t {}", x);
+                                    //println!("\t {}", x);
                                 }
                                 
                                 if params.len() > 0 {
@@ -296,7 +296,7 @@ impl IrcConnectionInternal {
             //@TODO Better handle invalid messages
             let msg_str = String::from_utf8(response).unwrap();
             
-            println!("IN  <--\t{}", msg_str);
+            //println!("IN  <--\t{}", msg_str);
 
             match IrcMessage::from_string(msg_str) {
                 Some(msg) => return msg,
@@ -309,7 +309,7 @@ impl IrcConnectionInternal {
     fn send_message(&self, message: IrcMessage) -> Result<(), ()> {
         let message_string = message.into_string();
         
-        println!("OUT -->\t{}", message_string);
+        //println!("OUT -->\t{}", message_string);
         
         match (&(self.tcp_stream)).write_all(message_string.as_bytes()) {
             Ok(_) => Ok(()),
