@@ -2,25 +2,25 @@
 
 mod libirc;
 mod libvn64c;
+mod libdemc;
 
 #[macro_use]
-extern crate log;
 extern crate regex;
 extern crate toml;
+extern crate time;
 
-use std::thread;
 use std::fs::File;
 use std::io::Read;
 
+use libvn64c::{VirtualN64Controller, VirtualN64ControllerButton};
+use libdemc::DemC;
+
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
+const VJOY_DEVICE_NUMBER: u8 = 1;
 
 
-fn main() {
-    // Initialize a virtual N64 controller
-    let mut controller = libvn64c::VirtualN64Controller::new(1).unwrap();
-
-    // Parse our configuration file
+fn parse_config_file() -> (String, String, String, String) {
     let mut config_file = File::open(CONFIG_FILE_PATH).unwrap();
     let mut config_string = String::new();
     config_file.read_to_string(&mut config_string);
@@ -33,6 +33,18 @@ fn main() {
     let nick = String::from(toml_tree.lookup("irc.nick").unwrap().as_str().unwrap());
     let channel = String::from(toml_tree.lookup("irc.channel").unwrap().as_str().unwrap());
     
+    (server, pass, nick, channel)
+}
+
+
+fn main() {
+    // Parse our configuration file
+    let (server, pass, nick, channel) = parse_config_file();
+    
+    // Initialize a democratized virtual N64 controller
+    let controller = VirtualN64Controller::new(VJOY_DEVICE_NUMBER).unwrap();
+    let mut dem_controller = DemC::new(controller);
+    
     // Start our IRC connection
     let irc_connection = libirc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
     
@@ -42,28 +54,24 @@ fn main() {
         //@todo understand as_ref()
         //@todo remove this 1 hardcode (which is there to ignore the channel name parameter)
         match received_value.get(1).unwrap().as_ref() {
-            "a" => {
-                controller.set_button(libvn64c::VirtualN64ControllerButton::A, true);
-                thread::sleep_ms(500);
-                controller.set_button(libvn64c::VirtualN64ControllerButton::A, false);
-                thread::sleep_ms(200);
-            },
-            "b" => {
-                controller.set_button(libvn64c::VirtualN64ControllerButton::B, true);
-                thread::sleep_ms(500);
-                controller.set_button(libvn64c::VirtualN64ControllerButton::B, false);
-                thread::sleep_ms(200);
-            },
-            "start" => {
-                controller.set_button(libvn64c::VirtualN64ControllerButton::Start, true);
-                thread::sleep_ms(200);
-                controller.set_button(libvn64c::VirtualN64ControllerButton::Start, false);
-                thread::sleep_ms(200);
-            },
-            "up" => { controller.set_joystick(90, 0.5); },
-            "down" => { controller.set_joystick(270, 0.5); },
-            "left" => { controller.set_joystick(180, 0.5); },
-            "right" => { controller.set_joystick(0, 0.5); },
+            "a" => dem_controller.cast_button_vote(VirtualN64ControllerButton::A),
+            "b" => dem_controller.cast_button_vote(VirtualN64ControllerButton::B),
+            "z" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Z),
+            "l" => dem_controller.cast_button_vote(VirtualN64ControllerButton::L),
+            "r" => dem_controller.cast_button_vote(VirtualN64ControllerButton::R),
+            "start" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Start),
+            "cup" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Cup),
+            "cdown" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Cdown),
+            "cleft" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Cleft),
+            "cright" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Cright),
+            "dup" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Dup),
+            "ddown" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Ddown),
+            "dleft" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Dleft),
+            "dright" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Dright),
+            "up" => dem_controller.cast_joystick_vote(90, 1.0),
+            "down" => dem_controller.cast_joystick_vote(270, 1.0),
+            "left" => dem_controller.cast_joystick_vote(180, 1.0),
+            "right" => dem_controller.cast_joystick_vote(0, 1.0),
             _ => ()
         }
     }

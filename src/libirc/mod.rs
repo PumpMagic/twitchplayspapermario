@@ -218,9 +218,11 @@ impl IrcConnection {
                     Command::Privmsg => {
                         match m.params {
                             Some(params) => {
+                                /*
                                 for x in params.iter() {
-                                    //println!("\t {}", x);
+                                    println!("\t {}", x);
                                 }
+                                */
                                 
                                 if params.len() > 0 {
                                     match tx_privmsg.send(params) {

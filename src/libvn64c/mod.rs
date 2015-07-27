@@ -12,9 +12,10 @@ const HID_JOYSTICK_X: libc::c_uint = 0x30;
 const HID_JOYSTICK_Y: libc::c_uint = 0x31;
 
 // Number of digital inputs on a standard N64 controller
-const NUM_N64_BUTTONS: u8 = 14;
+pub const NUM_N64_BUTTONS: u8 = 14;
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub enum VirtualN64ControllerButton {
     A,
     B,
@@ -50,6 +51,25 @@ impl VirtualN64ControllerButton {
             VirtualN64ControllerButton::Ddown => 0x12,
             VirtualN64ControllerButton::Dleft => 0x13,
             VirtualN64ControllerButton::Dright => 0x14
+        }
+    }
+    
+    pub fn get_raw_index(&self) -> usize {
+        match *self {
+            VirtualN64ControllerButton::A => 0,
+            VirtualN64ControllerButton::B => 1,
+            VirtualN64ControllerButton::Z => 2,
+            VirtualN64ControllerButton::L => 3,
+            VirtualN64ControllerButton::R => 4,
+            VirtualN64ControllerButton::Start => 5,
+            VirtualN64ControllerButton::Cup => 6,
+            VirtualN64ControllerButton::Cdown => 7,
+            VirtualN64ControllerButton::Cleft => 8,
+            VirtualN64ControllerButton::Cright => 9,
+            VirtualN64ControllerButton::Dup => 10,
+            VirtualN64ControllerButton::Ddown => 11,
+            VirtualN64ControllerButton::Dleft => 12,
+            VirtualN64ControllerButton::Dright => 13
         }
     }
 }
@@ -191,7 +211,7 @@ impl VirtualN64Controller {
     }
 
     // Set the virtual joystick, assuming that direction is in degrees and strength is a number 0-1 inclusive
-    pub fn set_joystick(&mut self, direction: u16, strength: f32) -> Result<(), &'static str> {
+    pub fn set_joystick(&self, direction: u16, strength: f32) -> Result<(), &'static str> {
         if direction > 359 {
             return Err("Direction must be between 0 and 359");
         }
@@ -215,20 +235,20 @@ impl VirtualN64Controller {
             Ok(_) => (),
             Err(_) => return Err("Unable to set X axis")
         }
-        self.state.x = x;
+        //self.state.x = x;
 
         match set_vjoystick_axis(self.props.vjoy_device_number, HID_JOYSTICK_Y, y) {
             Ok(_) => (),
             Err(_) => return Err("Unable to set Y axis")
         }
-        self.state.y = y;
+        //self.state.y = y;
 
-        self.write_to_console();
+        //self.write_to_console();
         
         Ok(())
     }
 
-    pub fn set_button(&mut self, button: VirtualN64ControllerButton, value: bool) -> Result<(), &'static str> {
+    pub fn set_button(&self, button: &VirtualN64ControllerButton, value: bool) -> Result<(), &'static str> {
         let valc = value as libc::c_int;
 
         match set_vjoystick_button(self.props.vjoy_device_number, button.get_vjoy_button_index(), valc) {
@@ -236,6 +256,7 @@ impl VirtualN64Controller {
             Err(_) => return Err("Unable to set virtual joystick button")
         }
 
+        /*
         match button {
             VirtualN64ControllerButton::A => self.state.a = valc,
             VirtualN64ControllerButton::B => self.state.b = valc,
@@ -252,8 +273,9 @@ impl VirtualN64Controller {
             VirtualN64ControllerButton::Dleft => self.state.dleft = valc,
             VirtualN64ControllerButton::Dright => self.state.dright = valc
         }
+        */
 
-        self.write_to_console();
+        //self.write_to_console();
         
         Ok(())
     }
