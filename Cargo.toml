@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["TPPM"]
 
 [dependencies]
-regex = "0.1.33"
+regex = "0.1.41"
 libc = "0.1.8"
 toml = "0.1.21"
 time = "0.1.31"

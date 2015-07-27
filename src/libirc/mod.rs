@@ -61,8 +61,17 @@ impl IrcMessage {
         // Dissect the message to identify its prefix (if present), its command (if present), and its
         // arguments (if present)
         //@todo probably a bad idea to have written this regex, google "irc regex" and replace this
-        let re = Regex::new(r"(^:(?P<prefix>([:alnum:]|[:punct:])+) )?((?P<command>([:alnum:])+)? ?)(?P<params>.*?)\r").unwrap();
-        let cap = re.captures(&msg).unwrap();
+        let re_option = Regex::new(r"(^:(?P<prefix>([:alnum:]|[:punct:])+) )?((?P<command>([:alnum:])+)? ?)(?P<params>.*?)\r");
+        if re_option.is_err() {
+            return None;
+        }
+        let re = re_option.unwrap();
+        
+        let cap_option = re.captures(&msg);
+        if cap_option.is_none() {
+            return None;
+        }
+        let cap = cap_option.unwrap();
 
         let prefix = cap.name("prefix");
         let command = cap.name("command");
@@ -247,8 +256,8 @@ impl IrcConnection {
         self.join_handle.join();
     }
     
-    pub fn receive_privmsg(&self) -> Vec<String> {
-        self.rx_privmsg.recv().unwrap()
+    pub fn receive_privmsg(&self) -> Result<Vec<String>, mpsc::RecvError> {
+        self.rx_privmsg.recv()
     }
     
     pub fn kill(&self) {
@@ -276,33 +285,45 @@ impl IrcConnectionInternal {
 
             // Read from the TCP stream until we get CRLF (which signals the termination of an IRC message)
             // or the socket read fails
+            let mut valid_message_received = false;
             loop {
-                let mut read_byte: Vec<u8> = Vec::with_capacity(1);
+                let mut read_byte_vec: Vec<u8> = Vec::with_capacity(1);
 
-                let read_result = (&(self.tcp_stream)).take(1).read_to_end(&mut read_byte);
+                let read_result = (&(self.tcp_stream)).take(1).read_to_end(&mut read_byte_vec);
                 match read_result {
                     Result::Ok(_) => {
-                        response.push(*(read_byte.get(0).unwrap())); //@todo handle None
+                        match read_byte_vec.get(0) {
+                            Some(byte) => { response.push(*byte); },
+                            _ => {
+                                println!("Read from TCP stream, but received data vector empty...");
+                                break;
+                            }
+                        }
                         if last_two_are_crlf(&response) {
+                            valid_message_received = true;
                             break;
                         }
                     },
-                    Result::Err(error)      => {
+                    Result::Err(error) => {
                         println!("Stream read error: {:?}", error);
                         break;
                     }
                 }
             }
 
-            // Convert our raw byte vector into a String for easier, native processing
-            //@TODO Better handle invalid messages
-            let msg_str = String::from_utf8(response).unwrap();
-            
-            //println!("IN  <--\t{}", msg_str);
-
-            match IrcMessage::from_string(msg_str) {
-                Some(msg) => return msg,
-                _ => () // the string we received couldn't be parsed as a valid IRC message
+            if valid_message_received {
+                // Convert our raw byte vector into a String for easier, native processing
+                //@TODO Better handle invalid messages
+                match String::from_utf8(response) {
+                    Ok(msg_str) => {
+                        //println!("IN  <--\t{}", msg_str);
+                        match IrcMessage::from_string(msg_str) {
+                            Some(msg) => return msg,
+                            _ => () // the string we received couldn't be parsed as a valid IRC message
+                        }
+                    },
+                    _ => ()
+                }
             }
         }
     }

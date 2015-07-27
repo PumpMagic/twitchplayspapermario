@@ -37,6 +37,36 @@ fn parse_config_file() -> (String, String, String, String) {
 }
 
 
+fn handle_irc_message(msg_vec: Vec<String>, demc: &mut DemC) {
+    //@todo understand as_ref()
+    //@todo remove this 1 hardcode (which is there to ignore the channel name parameter)
+    match msg_vec.get(1) {
+        Some(param) => match param.as_ref() {
+            "a" => demc.cast_button_vote(VirtualN64ControllerButton::A),
+            "b" => demc.cast_button_vote(VirtualN64ControllerButton::B),
+            "z" => demc.cast_button_vote(VirtualN64ControllerButton::Z),
+            "l" => demc.cast_button_vote(VirtualN64ControllerButton::L),
+            "r" => demc.cast_button_vote(VirtualN64ControllerButton::R),
+            "start" => demc.cast_button_vote(VirtualN64ControllerButton::Start),
+            "cup" => demc.cast_button_vote(VirtualN64ControllerButton::Cup),
+            "cdown" => demc.cast_button_vote(VirtualN64ControllerButton::Cdown),
+            "cleft" => demc.cast_button_vote(VirtualN64ControllerButton::Cleft),
+            "cright" => demc.cast_button_vote(VirtualN64ControllerButton::Cright),
+            "dup" => demc.cast_button_vote(VirtualN64ControllerButton::Dup),
+            "ddown" => demc.cast_button_vote(VirtualN64ControllerButton::Ddown),
+            "dleft" => demc.cast_button_vote(VirtualN64ControllerButton::Dleft),
+            "dright" => demc.cast_button_vote(VirtualN64ControllerButton::Dright),
+            "up" => demc.cast_joystick_vote(90, 1.0),
+            "down" => demc.cast_joystick_vote(270, 1.0),
+            "left" => demc.cast_joystick_vote(180, 1.0),
+            "right" => demc.cast_joystick_vote(0, 1.0),
+            _ => ()
+        },
+        _ => { println!("Received unrecognized message: {:?}", msg_vec); }
+    }
+}
+
+
 fn main() {
     // Parse our configuration file
     let (server, pass, nick, channel) = parse_config_file();
@@ -48,30 +78,10 @@ fn main() {
     // Start our IRC connection
     let irc_connection = libirc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
     
+    // Poll the IRC connection and handle its messages forever
     loop {
-        let received_value = irc_connection.receive_privmsg();
-        
-        //@todo understand as_ref()
-        //@todo remove this 1 hardcode (which is there to ignore the channel name parameter)
-        match received_value.get(1).unwrap().as_ref() {
-            "a" => dem_controller.cast_button_vote(VirtualN64ControllerButton::A),
-            "b" => dem_controller.cast_button_vote(VirtualN64ControllerButton::B),
-            "z" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Z),
-            "l" => dem_controller.cast_button_vote(VirtualN64ControllerButton::L),
-            "r" => dem_controller.cast_button_vote(VirtualN64ControllerButton::R),
-            "start" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Start),
-            "cup" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Cup),
-            "cdown" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Cdown),
-            "cleft" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Cleft),
-            "cright" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Cright),
-            "dup" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Dup),
-            "ddown" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Ddown),
-            "dleft" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Dleft),
-            "dright" => dem_controller.cast_button_vote(VirtualN64ControllerButton::Dright),
-            "up" => dem_controller.cast_joystick_vote(90, 1.0),
-            "down" => dem_controller.cast_joystick_vote(270, 1.0),
-            "left" => dem_controller.cast_joystick_vote(180, 1.0),
-            "right" => dem_controller.cast_joystick_vote(0, 1.0),
+        match irc_connection.receive_privmsg() {
+            Ok(msg_vec) => { handle_irc_message(msg_vec, &mut dem_controller); },
             _ => ()
         }
     }
