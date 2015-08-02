@@ -16,6 +16,7 @@ pub const NUM_N64_BUTTONS: u8 = 14;
 
 #[derive(Debug)]
 #[derive(Clone)]
+#[derive(Copy)]
 pub enum VirtualN64ControllerButton {
     A,
     B,
