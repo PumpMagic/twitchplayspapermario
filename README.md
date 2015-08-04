@@ -1,5 +1,5 @@
 # Twitch Plays Paper Mario
-Twitch Plays Paper Mario is a pet project and direct spinoff of Twitch Plays Pokemon.
+Twitch Plays Paper Mario is a pet project and direct spinoff of Twitch Plays Pokemon. You can find it deployed live at [TwitchTV}(http://www.twitch.tv/twitchplayspapermario)
 
 ## Building and Running
 TPPM can be built with Cargo, Rust's package manager. Due to its dependency on [vJoy](http://vjoystick.sourceforge.net/site/), it will only work in Windows.
