@@ -14,7 +14,7 @@ use std::io::Read;
 
 use regex::Regex;
 
-use libvn64c::{VirtualN64Controller, VirtualN64ControllerButton};
+use libvn64c::{Controller, ButtonName};
 use libdemc::DemC;
 
 
@@ -128,20 +128,20 @@ fn handle_irc_message(msg: &String, demc: &mut DemC, re: &Regex) {
             // button command - only one argument, the button to press
             println!("button command: {:?}", bcap);
             match bcap {
-                "a" => demc.cast_button_vote(VirtualN64ControllerButton::A, cumulative_delay),
-                "b" => demc.cast_button_vote(VirtualN64ControllerButton::B, cumulative_delay),
-                "z" => demc.cast_button_vote(VirtualN64ControllerButton::Z, cumulative_delay),
-                "l" => demc.cast_button_vote(VirtualN64ControllerButton::L, cumulative_delay),
-                "r" => demc.cast_button_vote(VirtualN64ControllerButton::R, cumulative_delay),
-                "start" => demc.cast_button_vote(VirtualN64ControllerButton::Start, cumulative_delay),
-                "cup" => demc.cast_button_vote(VirtualN64ControllerButton::Cup, cumulative_delay),
-                "cdown" => demc.cast_button_vote(VirtualN64ControllerButton::Cdown, cumulative_delay),
-                "cleft" => demc.cast_button_vote(VirtualN64ControllerButton::Cleft, cumulative_delay),
-                "cright" => demc.cast_button_vote(VirtualN64ControllerButton::Cright, cumulative_delay),
-                "dup" => demc.cast_button_vote(VirtualN64ControllerButton::Dup, cumulative_delay),
-                "ddown" => demc.cast_button_vote(VirtualN64ControllerButton::Ddown, cumulative_delay),
-                "dleft" => demc.cast_button_vote(VirtualN64ControllerButton::Dleft, cumulative_delay),
-                "dright" => demc.cast_button_vote(VirtualN64ControllerButton::Dright, cumulative_delay),
+                "a" => demc.cast_button_vote(ButtonName::A, cumulative_delay),
+                "b" => demc.cast_button_vote(ButtonName::B, cumulative_delay),
+                "z" => demc.cast_button_vote(ButtonName::Z, cumulative_delay),
+                "l" => demc.cast_button_vote(ButtonName::L, cumulative_delay),
+                "r" => demc.cast_button_vote(ButtonName::R, cumulative_delay),
+                "start" => demc.cast_button_vote(ButtonName::Start, cumulative_delay),
+                "cup" => demc.cast_button_vote(ButtonName::Cup, cumulative_delay),
+                "cdown" => demc.cast_button_vote(ButtonName::Cdown, cumulative_delay),
+                "cleft" => demc.cast_button_vote(ButtonName::Cleft, cumulative_delay),
+                "cright" => demc.cast_button_vote(ButtonName::Cright, cumulative_delay),
+                "dup" => demc.cast_button_vote(ButtonName::Dup, cumulative_delay),
+                "ddown" => demc.cast_button_vote(ButtonName::Ddown, cumulative_delay),
+                "dleft" => demc.cast_button_vote(ButtonName::Dleft, cumulative_delay),
+                "dright" => demc.cast_button_vote(ButtonName::Dright, cumulative_delay),
                 _ => return
             }
             
@@ -163,7 +163,7 @@ fn main() {
     let (server, pass, nick, channel) = parse_config_file();
     
     // Initialize a democratized virtual N64 controller
-    let controller = VirtualN64Controller::new(VJOY_DEVICE_NUMBER).unwrap();
+    let controller = Controller::new(VJOY_DEVICE_NUMBER).unwrap();
     let mut dem_controller = DemC::new(controller);
     
     // Start our IRC connection

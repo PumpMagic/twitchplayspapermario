@@ -6,32 +6,51 @@ use std::f32::consts::PI;
 
 use time;
 
-use libvn64c::{VirtualN64Controller, VirtualN64ControllerButton};
+use libvn64c::{Controller, ButtonName, InputCommand};
 
+
+fn get_button_guard_index(name: &ButtonName) -> usize {
+    // Zero-based indexing of enum values
+    //@todo this really shouldn't be necessary
+    match *name {
+        ButtonName::A => 0,
+        ButtonName::B => 1,
+        ButtonName::Z => 2,
+        ButtonName::L => 3,
+        ButtonName::R => 4,
+        ButtonName::Start => 5,
+        ButtonName::Cup => 6,
+        ButtonName::Cdown => 7,
+        ButtonName::Cleft => 8,
+        ButtonName::Cright => 9,
+        ButtonName::Dup => 10,
+        ButtonName::Ddown => 11,
+        ButtonName::Dleft => 12,
+        ButtonName::Dright => 13
+    }
+}
 
 //@todo this module's method of handling delayed votes and queueing is seriously gross
 //@todo refactor this
-
-
 // A democratized virtual N64 controller
 pub struct DemC {
-    controller: Arc<VirtualN64Controller>,
+    controller: Arc<Controller>,
     
     tx_joystick_vote: mpsc::Sender<(time::Timespec, u16, f32, time::Duration)>,
-    tx_button_vote: mpsc::Sender<VirtualN64ControllerButton>,
+    tx_button_vote: mpsc::Sender<ButtonName>,
     tx_delayed_joystick_vote: mpsc::Sender<(time::Timespec, u16, f32, time::Duration, time::Duration)>,
-    tx_delayed_button_vote: mpsc::Sender<(time::Timespec, VirtualN64ControllerButton, time::Duration)>,
+    tx_delayed_button_vote: mpsc::Sender<(time::Timespec, ButtonName, time::Duration)>,
     
     joystick_vote_listener: thread::JoinHandle<()>,
     button_vote_listener: thread::JoinHandle<()>
 }
 
 impl DemC {
-    pub fn new(controller: VirtualN64Controller) -> DemC {
+    pub fn new(controller: Controller) -> DemC {
         let arc_controller = Arc::new(controller);
         
         let (tx_joystick_vote, rx_joystick_vote) = mpsc::channel();
-        let (tx_button_vote, rx_button_vote): (mpsc::Sender<VirtualN64ControllerButton>, mpsc::Receiver<VirtualN64ControllerButton>) = mpsc::channel();
+        let (tx_button_vote, rx_button_vote): (mpsc::Sender<ButtonName>, mpsc::Receiver<ButtonName>) = mpsc::channel();
         //let (tx_button_vote, rx_button_vote) = mpsc::channel();
         let (tx_delayed_joystick_vote, rx_delayed_joystick_vote) = mpsc::channel();
         let (tx_delayed_button_vote, rx_delayed_button_vote) = mpsc::channel();
@@ -112,9 +131,11 @@ impl DemC {
                     }
                     let strength_avg = (x_avg*x_avg + y_avg*y_avg).sqrt();
                     
-                    arc_controller_joystick_vote_listener.set_joystick(direction_avg_deg as u16, strength_avg);
+                    let command = InputCommand::Joystick { direction: direction_avg_deg as u16, strength: strength_avg };
+                    arc_controller_joystick_vote_listener.change_input(&command);
                 } else {
-                    arc_controller_joystick_vote_listener.set_joystick(0, 0.0);
+                    let command = InputCommand::Joystick { direction: 0, strength: 0.0 };
+                    arc_controller_joystick_vote_listener.change_input(&command);
                 }
                 
                 
@@ -141,8 +162,8 @@ impl DemC {
                                  Mutex::new(()),
                                  Mutex::new(())];
             
-            let mut button_votes: Vec<VirtualN64ControllerButton> = Vec::new();
-            let mut delayed_button_votes: Vec<(time::Timespec, VirtualN64ControllerButton, time::Duration)> = Vec::new();
+            let mut button_votes: Vec<ButtonName> = Vec::new();
+            let mut delayed_button_votes: Vec<(time::Timespec, ButtonName, time::Duration)> = Vec::new();
             
             loop {
                 match rx_button_vote.try_recv() {
@@ -161,7 +182,7 @@ impl DemC {
             
                 // Transfer delayed votes to current votes if it's time
                 let time_now = time::get_time();
-                let mut delayed_button_votes_fresh: Vec<(time::Timespec, VirtualN64ControllerButton, time::Duration)> = Vec::new();
+                let mut delayed_button_votes_fresh: Vec<(time::Timespec, ButtonName, time::Duration)> = Vec::new();
                 for &(vote_time, button, delay) in delayed_button_votes.iter() {
                     if time_now - delay > vote_time {
                         button_votes.push(button);
@@ -175,16 +196,18 @@ impl DemC {
                     // Is a button in a press-release cycle? If so, ignore vote
                     // Otherwise, hold the button for 0.1667 seconds and then release it indefinitely but
                     // for at least 0.0833 seconds (5 frames, at 60fps)
-                    let button_guard_index = button.get_raw_index();
+                    let button_guard_index = get_button_guard_index(&button);
                     
                     match button_guards[button_guard_index].try_lock() { //@todo button -> array index map
                         Ok(_) => {
                             let closure_controller = arc_controller_button_vote_listener.clone();
                             let closure_button = button.clone();
                             thread::spawn(move || {
-                                closure_controller.set_button(&closure_button, true);
+                                let command1 = InputCommand::Button { name: closure_button, value: true };
+                                closure_controller.change_input(&command1);
                                 thread::sleep_ms(167);
-                                closure_controller.set_button(&closure_button, false);
+                                let command2 = InputCommand::Button { name: closure_button, value: false };
+                                closure_controller.change_input(&command2);
                                 thread::sleep_ms(83);
                             });
                         },
@@ -220,7 +243,7 @@ impl DemC {
 
 
     // Vote to press a button
-    pub fn cast_button_vote(&self, button: VirtualN64ControllerButton, delay: u32) {
+    pub fn cast_button_vote(&self, button: ButtonName, delay: u32) {
         if delay > 0 {
             self.tx_delayed_button_vote.send((time::get_time(), button, time::Duration::milliseconds(delay as i64)));
         } else {

@@ -14,10 +14,9 @@ const HID_JOYSTICK_Y: libc::c_uint = 0x31;
 // Number of digital inputs on a standard N64 controller
 pub const NUM_N64_BUTTONS: u8 = 14;
 
-#[derive(Debug)]
-#[derive(Clone)]
-#[derive(Copy)]
-pub enum VirtualN64ControllerButton {
+// Enumeration of digital inputs on an N64 controller
+#[derive(Debug, Clone, Copy)]
+pub enum ButtonName {
     A,
     B,
     Z,
@@ -34,50 +33,33 @@ pub enum VirtualN64ControllerButton {
     Dright
 }
 
-// Default emulator button bindings. vJoy button indices are one-based
-impl VirtualN64ControllerButton {
+impl ButtonName {
+    // Emulator button bindings - what emulator button each virtual joystick button is connected to
+    // Note that vJoy button indices are one-based
     fn get_vjoy_button_index(&self) -> libc::c_uchar {
         match *self {
-            VirtualN64ControllerButton::A => 0x01,
-            VirtualN64ControllerButton::B => 0x02,
-            VirtualN64ControllerButton::Z => 0x03,
-            VirtualN64ControllerButton::L => 0x04,
-            VirtualN64ControllerButton::R => 0x05,
-            VirtualN64ControllerButton::Start => 0x06,
-            VirtualN64ControllerButton::Cup => 0x07,
-            VirtualN64ControllerButton::Cdown => 0x08,
-            VirtualN64ControllerButton::Cleft => 0x09,
-            VirtualN64ControllerButton::Cright => 0x10,
-            VirtualN64ControllerButton::Dup => 0x11,
-            VirtualN64ControllerButton::Ddown => 0x12,
-            VirtualN64ControllerButton::Dleft => 0x13,
-            VirtualN64ControllerButton::Dright => 0x14
-        }
-    }
-    
-    pub fn get_raw_index(&self) -> usize {
-        match *self {
-            VirtualN64ControllerButton::A => 0,
-            VirtualN64ControllerButton::B => 1,
-            VirtualN64ControllerButton::Z => 2,
-            VirtualN64ControllerButton::L => 3,
-            VirtualN64ControllerButton::R => 4,
-            VirtualN64ControllerButton::Start => 5,
-            VirtualN64ControllerButton::Cup => 6,
-            VirtualN64ControllerButton::Cdown => 7,
-            VirtualN64ControllerButton::Cleft => 8,
-            VirtualN64ControllerButton::Cright => 9,
-            VirtualN64ControllerButton::Dup => 10,
-            VirtualN64ControllerButton::Ddown => 11,
-            VirtualN64ControllerButton::Dleft => 12,
-            VirtualN64ControllerButton::Dright => 13
+            ButtonName::A => 0x01,
+            ButtonName::B => 0x02,
+            ButtonName::Z => 0x03,
+            ButtonName::L => 0x04,
+            ButtonName::R => 0x05,
+            ButtonName::Start => 0x06,
+            ButtonName::Cup => 0x07,
+            ButtonName::Cdown => 0x08,
+            ButtonName::Cleft => 0x09,
+            ButtonName::Cright => 0x10,
+            ButtonName::Dup => 0x11,
+            ButtonName::Ddown => 0x12,
+            ButtonName::Dleft => 0x13,
+            ButtonName::Dright => 0x14
         }
     }
 }
 
-// Info about our virtual joystick
+// Properties (non-input-state characteristics) about a virtual N64 controller
 // Post-initialization, this should all be read-only
-struct VirtualN64ControllerProps {
+#[derive(Default)]
+struct Props {
     vjoy_device_number: libc::c_uint,
     
     x_min: libc::c_long,
@@ -86,8 +68,9 @@ struct VirtualN64ControllerProps {
     y_max: libc::c_long,
 }
 
-// Last-set values
-struct VirtualN64ControllerState {
+// Comprehensive status of a virtual N64 controller's inputs
+#[derive(Default)]
+struct State {
     x: libc::c_long,
     y: libc::c_long,
     a: libc::c_int,
@@ -106,47 +89,75 @@ struct VirtualN64ControllerState {
     dright: libc::c_int,
 }
 
-pub struct VirtualN64Controller {
-    props: VirtualN64ControllerProps,
-    state: VirtualN64ControllerState,
+#[derive(Default)]
+pub struct Controller {
+    props: Props,
+    state: State
 }
 
-impl Default for VirtualN64Controller {
-    fn default() -> VirtualN64Controller {
-        VirtualN64Controller {
-            props: VirtualN64ControllerProps {
-                vjoy_device_number: 0,
-                x_min: 0,
-                x_max: 0,
-                y_min: 0,
-                y_max: 0
+pub enum InputCommand {
+    // direction is in degrees - strength is a number between 0 and 1
+    Joystick { direction: u16, strength: f32 },
+    Button { name: ButtonName, value: bool }
+}
+
+impl InputCommand {
+    fn is_valid(&self) -> bool {
+        match *self {
+            InputCommand::Joystick { direction, strength } => {
+                if direction > 359 {
+                    return false;
+                } else if strength < 0.0 || strength > 1.0 {
+                    return false;
+                }
+                return true
             },
-            state: VirtualN64ControllerState {
-                x: 0,
-                y: 0,
-                a: 0,
-                b: 0,
-                z: 0,
-                l: 0,
-                r: 0,
-                start: 0,
-                cup: 0,
-                cdown: 0,
-                cleft: 0,
-                cright: 0,
-                dup: 0,
-                ddown: 0,
-                dleft: 0,
-                dright: 0
-            }
+            InputCommand::Button { name: _, value: _ } => { return true; }
         }
     }
 }
 
-impl VirtualN64Controller {
-    // Make a virtual N64 controller given a vJoy device number
-    fn from_vjoy_device_number(vjoy_device_number: libc::c_uint) -> Result<(VirtualN64Controller), &'static str> {
-        let mut controller = VirtualN64Controller { ..Default::default() };
+impl Controller {
+    // Verify that a vJoy device can act as a virtual N64 controller, and if so, return a virtual
+    // N64 controller
+    pub fn new(vjoy_device_number: u8) -> Result<Controller, String> {
+        let vjoy_device_number_native = vjoy_device_number as libc::c_uint;
+
+        match get_vjoy_is_enabled() {
+            Ok(val) => {
+                if val == false {
+                    return Err(format!("vJoy isn't enabled. Have you installed vJoy?"));
+                }
+            },
+            Err(err) => return Err(format!("Unable to check if vJoy is enabled. Have you installed vJoy?"))
+        }
+
+        match verify_vjoystick_as_n64(vjoy_device_number_native) {
+            Ok(()) => (),
+            Err(err) => return Err(format!("Virtual joystick {} can't act as an N64 controller: {}.\
+                                            You may need to reconfigure your vJoy device",
+                                           vjoy_device_number, err))
+        }
+
+        match claim_vjoystick(vjoy_device_number_native) {
+            Err(msg) => return Err(format!("{}", msg)),
+            _ => ()
+        }
+
+        match reset_vjoystick(vjoy_device_number_native) {
+            Err(msg) => return Err(format!("{}", msg)),
+            _ => ()
+        }
+
+        match Controller::from_vjoy_device_number(vjoy_device_number_native) {
+            Err(msg) => Err(format!("{}", msg)),
+            Ok(controller) => Ok(controller)
+        }
+    }
+
+    // Make and initialize a virtual N64 controller struct given the device number
+    fn from_vjoy_device_number(vjoy_device_number: libc::c_uint) -> Result<Controller, &'static str> {
+        let mut controller = Controller { ..Default::default() };
 
         controller.props.vjoy_device_number = vjoy_device_number;
 
@@ -174,52 +185,24 @@ impl VirtualN64Controller {
 
         Ok(controller)
     }
-
-    // Verify that a vJoy device can act as a virtual N64 controller, and if so, return a virtual N64 controller
-    pub fn new(vjoy_device_number: u8) -> Result<VirtualN64Controller, String> {
-        let vjoy_device_number_native = vjoy_device_number as libc::c_uint;
-
-        match get_vjoy_is_enabled() {
-            Ok(val) => {
-                if val == false {
-                    return Err(format!("vJoy isn't enabled. Have you installed vJoy?"));
-                }
+    
+    pub fn change_input(&self, command: &InputCommand) -> Result<(), &'static str> {
+        match command.is_valid() {
+            true => (),
+            false => { return Err("Input command is invalid. Valid directions: [0, 359]; valid strengths: [0.0, 1.0]"); }
+        }
+        
+        match *command {
+            InputCommand::Joystick { direction, strength } => {
+                self.change_joystick(direction, strength)
             },
-            Err(err) => return Err(format!("Unable to check if vJoy is enabled. Have you installed vJoy?"))
-        }
-
-        match verify_vjoystick_as_n64(vjoy_device_number_native) {
-            Ok(()) => (),
-            Err(err) => return Err(format!("Virtual joystick {} can't act as an N64 controller: {}.\
-                                            You may need to reconfigure your vJoy device",
-                                           vjoy_device_number, err))
+            InputCommand::Button { name, value } => {
+                self.change_button(name, value)
             }
-
-        match claim_vjoystick(vjoy_device_number_native) {
-            Err(msg) => return Err(format!("{}", msg)),
-            _ => ()
-        }
-
-        match reset_vjoystick(vjoy_device_number_native) {
-            Err(msg) => return Err(format!("{}", msg)),
-            _ => ()
-        }
-
-        match VirtualN64Controller::from_vjoy_device_number(vjoy_device_number_native) {
-            Err(msg) => Err(format!("{}", msg)),
-            Ok(controller) => Ok(controller)
         }
     }
-
-    // Set the virtual joystick, assuming that direction is in degrees and strength is a number 0-1 inclusive
-    pub fn set_joystick(&self, direction: u16, strength: f32) -> Result<(), &'static str> {
-        if direction > 359 {
-            return Err("Direction must be between 0 and 359");
-        }
-        if strength < 0.0 || strength > 1.0 {
-            return Err("Strength must be between 0 and 1");
-        }
-
+    
+    fn change_joystick(&self, direction: u16, strength: f32) -> Result<(), &'static str> {
         // Convert direction from degrees to radians
         let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
 
@@ -243,44 +226,40 @@ impl VirtualN64Controller {
             Err(_) => return Err("Unable to set Y axis")
         }
         //self.state.y = y;
-
-        //self.write_to_console();
         
         Ok(())
     }
-
-    pub fn set_button(&self, button: &VirtualN64ControllerButton, value: bool) -> Result<(), &'static str> {
+    
+    fn change_button(&self, name: ButtonName, value: bool) -> Result<(), &'static str> {
         let valc = value as libc::c_int;
 
-        match set_vjoystick_button(self.props.vjoy_device_number, button.get_vjoy_button_index(), valc) {
+        match set_vjoystick_button(self.props.vjoy_device_number, name.get_vjoy_button_index(), valc) {
             Ok(_) => (),
             Err(_) => return Err("Unable to set virtual joystick button")
         }
 
         /*
         match button {
-            VirtualN64ControllerButton::A => self.state.a = valc,
-            VirtualN64ControllerButton::B => self.state.b = valc,
-            VirtualN64ControllerButton::Z => self.state.z = valc,
-            VirtualN64ControllerButton::L => self.state.l = valc,
-            VirtualN64ControllerButton::R => self.state.r = valc,
-            VirtualN64ControllerButton::Start => self.state.start = valc,
-            VirtualN64ControllerButton::Cup => self.state.cup = valc,
-            VirtualN64ControllerButton::Cdown => self.state.cdown = valc,
-            VirtualN64ControllerButton::Cleft => self.state.cleft = valc,
-            VirtualN64ControllerButton::Cright => self.state.cright = valc,
-            VirtualN64ControllerButton::Dup => self.state.dup = valc,
-            VirtualN64ControllerButton::Ddown => self.state.ddown = valc,
-            VirtualN64ControllerButton::Dleft => self.state.dleft = valc,
-            VirtualN64ControllerButton::Dright => self.state.dright = valc
+            ButtonName::A => self.state.a = valc,
+            ButtonName::B => self.state.b = valc,
+            ButtonName::Z => self.state.z = valc,
+            ButtonName::L => self.state.l = valc,
+            ButtonName::R => self.state.r = valc,
+            ButtonName::Start => self.state.start = valc,
+            ButtonName::Cup => self.state.cup = valc,
+            ButtonName::Cdown => self.state.cdown = valc,
+            ButtonName::Cleft => self.state.cleft = valc,
+            ButtonName::Cright => self.state.cright = valc,
+            ButtonName::Dup => self.state.dup = valc,
+            ButtonName::Ddown => self.state.ddown = valc,
+            ButtonName::Dleft => self.state.dleft = valc,
+            ButtonName::Dright => self.state.dright = valc
         }
         */
-
-        //self.write_to_console();
         
         Ok(())
     }
-    
+        
     pub fn write_to_console(&self) {
         println!("X: {} Y: {} A: {} B: {} Z: {} L: {} R: {} S: {}", self.state.x, self.state.y, self.state.a, self.state.b, self.state.z, self.state.l, self.state.r, self.state.start);
         //println!("CU: {} CD: {} CL: {} CR: {}", self.state.cup, self.state.cdown, self.state.cleft, self.state.cright);
