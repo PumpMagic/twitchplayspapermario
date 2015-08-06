@@ -6,7 +6,7 @@ use std::f32::consts::PI;
 
 use time;
 
-use libvn64c::{Controller, ButtonName, InputCommand};
+use vn64c::{Controller, ButtonName, InputCommand};
 
 
 fn get_button_guard_index(name: &ButtonName) -> usize {

@@ -1,8 +1,8 @@
 #![allow(unused_must_use)]
 
-mod libirc;
-mod libvn64c;
-mod libdemc;
+mod irc;
+mod vn64c;
+mod demc;
 
 #[macro_use]
 extern crate regex;
@@ -14,8 +14,8 @@ use std::io::Read;
 
 use regex::Regex;
 
-use libvn64c::{Controller, ButtonName};
-use libdemc::DemC;
+use vn64c::{Controller, ButtonName};
+use demc::DemC;
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
@@ -167,7 +167,7 @@ fn main() {
     let mut dem_controller = DemC::new(controller);
     
     // Start our IRC connection
-    let irc_connection = libirc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
+    let irc_connection = irc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
     
     // Our regex for parsing IRC messages - this is here so that it need not be instantiated every
     // time we handle an IRC message
