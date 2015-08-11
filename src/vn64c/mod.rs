@@ -47,11 +47,11 @@ impl ButtonName {
             ButtonName::Cup => 0x07,
             ButtonName::Cdown => 0x08,
             ButtonName::Cleft => 0x09,
-            ButtonName::Cright => 0x10,
-            ButtonName::Dup => 0x11,
-            ButtonName::Ddown => 0x12,
-            ButtonName::Dleft => 0x13,
-            ButtonName::Dright => 0x14
+            ButtonName::Cright => 0x0a,
+            ButtonName::Dup => 0x0b,
+            ButtonName::Ddown => 0x0c,
+            ButtonName::Dleft => 0x0d,
+            ButtonName::Dright => 0x0e
         }
     }
 }
