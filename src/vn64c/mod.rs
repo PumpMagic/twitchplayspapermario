@@ -95,6 +95,7 @@ pub struct Controller {
     state: State
 }
 
+#[derive(Clone, Copy)]
 pub enum InputCommand {
     // direction is in degrees - strength is a number between 0 and 1
     Joystick { direction: u16, strength: f32 },

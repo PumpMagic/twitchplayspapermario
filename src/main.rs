@@ -16,11 +16,13 @@ use regex::Regex;
 
 use vn64c::{Controller, ButtonName};
 use demc::DemC;
+use demc::TimedInputCommand;
+use vn64c::InputCommand;
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
 const VJOY_DEVICE_NUMBER: u8 = 1;
-const IMPLICIT_CHAIN_DELAY: u32 = 1000;
+const IMPLICIT_CHAIN_DELAY: u32 = 500;
 
 // Parse the TPPM toml configuration file; return the server, password, nick, and channel
 fn parse_config_file() -> (String, String, String, String) {
@@ -40,41 +42,42 @@ fn parse_config_file() -> (String, String, String, String) {
 }
 
 
-//@todo document this and move it somewhere cleaner
-enum ControllerCommandType {
-    Joystick,
-    Button,
-    Delay
-}
 // Handle an incoming IRC message by attempting to parse it as a controller command or series of
 // controller commands and queueing these commands for sending to the democratized controller
 //@todo just use a custom state machine rather than regex, this has to be insanely slow
 //@todo this function is huge
 //@todo this will match messages with a single instance of a command no matter where that instance is
 // eg. "hah!" matches "a", "the one to the left" matches "left"...
-fn handle_irc_message(msg: &String, demc: &mut DemC, re: &Regex) {
+fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>> {
     let mut last_cap_end = None;
     let mut cumulative_delay: u32 = 0;
-    let mut last_command_type = None;
-    for cap in re.captures_iter(msg) {
+    let mut last_command: Option<TimedInputCommand> = None;
+    let mut cap_start_zero: bool = false;
+    let mut final_cap_end: usize = 0;
+    let mut res: Vec<TimedInputCommand> = Vec::new();
+    
+    for cap in re.captures_iter(&msg.to_lowercase()) {
         // Make sure that all captures are continuous; that is, we're parsing commands and only commands
         // eg. we don't want "hahah" to parse as two "a" commands
         let (cap_start, cap_end) = cap.pos(0).unwrap(); //@todo don't rely on capture position 0 existing
         if let Some(last_cap_end) = last_cap_end {
             if last_cap_end != cap_start {
-                return;
+                return None;
             }
+        }
+        final_cap_end = cap_end;
+        if cap_start == 0 {
+            cap_start_zero = true;
         }
         
         // Our regex should match on exactly one of three groups: "joystick", "button", or "delay"
         if let Some(jcap) = cap.name("joystick") {
-            match last_command_type {
-                Some(ctype) => match ctype {
-                    ControllerCommandType::Joystick => { cumulative_delay += IMPLICIT_CHAIN_DELAY; },
-                    ControllerCommandType::Button => { cumulative_delay += IMPLICIT_CHAIN_DELAY; },
-                    ControllerCommandType::Delay => ()
+            match last_command {
+                Some(command) => match command.command {
+                    InputCommand::Joystick{direction: _, strength: _} => { cumulative_delay += command.duration.num_milliseconds() as u32; },
+                    InputCommand::Button{name: _, value: _} => { cumulative_delay += IMPLICIT_CHAIN_DELAY }
                 },
-                _ => ()
+                None =>  ()
             }
             // joystick command - should have one, two, or four groups:
             // "joystick_strength" (optional)
@@ -85,7 +88,7 @@ fn handle_irc_message(msg: &String, demc: &mut DemC, re: &Regex) {
             
             let mut joystick_strength: f32 = 1.0;
             let mut joystick_direction: u16 = 0;
-            let mut joystick_duration: u32 = 1000;
+            let mut joystick_duration: u32 = 500;
             if let Some(jscap) = cap.name("joystick_strength") {
                 let strength_u8: u8 = jscap.parse().unwrap();
                 joystick_strength = strength_u8 as f32 / 100.0;
@@ -110,51 +113,109 @@ fn handle_irc_message(msg: &String, demc: &mut DemC, re: &Regex) {
             
             // treat joystick commands with strength <0%, >100% or duration >5s as invalid
             if joystick_strength > 1.0 || joystick_strength < 0.0 || joystick_duration > 5000 {
-                return;
+                return None;
             }
             
-            demc.cast_joystick_vote(joystick_direction, joystick_strength, joystick_duration, cumulative_delay);
+            let time_now = time::get_time();
+            let command = TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                                             duration: time::Duration::milliseconds(joystick_duration as i64),
+                                                             command: InputCommand::Joystick { direction: joystick_direction,
+                                                                                               strength: joystick_strength} };
+            res.push(command);
             
-            last_command_type = Some(ControllerCommandType::Joystick);
+            last_command = Some(command.clone());
         } else if let Some(bcap) = cap.name("button") {
-            match last_command_type {
-                Some(ctype) => match ctype {
-                    ControllerCommandType::Joystick => { cumulative_delay += IMPLICIT_CHAIN_DELAY; },
-                    ControllerCommandType::Button => { cumulative_delay += IMPLICIT_CHAIN_DELAY; },
-                    ControllerCommandType::Delay => ()
+            match last_command {
+                Some(command) => match command.command {
+                    InputCommand::Joystick{direction: _, strength: _} => { cumulative_delay += command.duration.num_milliseconds() as u32; },
+                    InputCommand::Button{name: _, value: _} => { cumulative_delay += IMPLICIT_CHAIN_DELAY }
                 },
-                _ => ()
+                None =>  ()
             }
             // button command - only one argument, the button to press
             println!("button command: {:?}", bcap);
-            match bcap {
-                "a" => demc.cast_button_vote(ButtonName::A, cumulative_delay),
-                "b" => demc.cast_button_vote(ButtonName::B, cumulative_delay),
-                "z" => demc.cast_button_vote(ButtonName::Z, cumulative_delay),
-                "l" => demc.cast_button_vote(ButtonName::L, cumulative_delay),
-                "r" => demc.cast_button_vote(ButtonName::R, cumulative_delay),
-                "start" => demc.cast_button_vote(ButtonName::Start, cumulative_delay),
-                "cup" => demc.cast_button_vote(ButtonName::Cup, cumulative_delay),
-                "cdown" => demc.cast_button_vote(ButtonName::Cdown, cumulative_delay),
-                "cleft" => demc.cast_button_vote(ButtonName::Cleft, cumulative_delay),
-                "cright" => demc.cast_button_vote(ButtonName::Cright, cumulative_delay),
-                "dup" => demc.cast_button_vote(ButtonName::Dup, cumulative_delay),
-                "ddown" => demc.cast_button_vote(ButtonName::Ddown, cumulative_delay),
-                "dleft" => demc.cast_button_vote(ButtonName::Dleft, cumulative_delay),
-                "dright" => demc.cast_button_vote(ButtonName::Dright, cumulative_delay),
-                _ => return
-            }
+            let time_now = time::get_time();
+            let command = match bcap {
+                "a" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::A,
+                                                                            value: true} },
+                "b" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::B,
+                                                                            value: true} },
+                "z" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Z,
+                                                                            value: true} },
+                "l" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::L,
+                                                                            value: true} },
+                "r" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::R,
+                                                                            value: true} },
+                "start" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Start,
+                                                                            value: true} },
+                "cup" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Cup,
+                                                                            value: true} },
+                "cdown" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Cdown,
+                                                                            value: true} },
+                "cleft" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Cleft,
+                                                                            value: true} },
+                "cright" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Cright,
+                                                                            value: true} },
+                "dup" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Dup,
+                                                                            value: true} },
+                "ddown" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Ddown,
+                                                                            value: true} },
+                "dleft" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Dleft,
+                                                                            value: true} },
+                "dright" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
+                                            duration: time::Duration::milliseconds(167),
+                                            command: InputCommand::Button { name: ButtonName::Dright,
+                                                                            value: true} },
+                _ => return None
+            };
+            res.push(command);
             
-            last_command_type = Some(ControllerCommandType::Button);
+            last_command = Some(command.clone());
         } else if let Some(dcap) = cap.name("delay") {
             // delay command - only one argument, the delay to insert
             println!("delay command: {:?}", dcap);
             cumulative_delay += 17;
-            last_command_type = Some(ControllerCommandType::Delay);
+            last_command = None
         }
         
         last_cap_end = Some(cap_end);
     }
+    
+    if final_cap_end != msg.len() {
+        return None;
+    }
+    
+    if cap_start_zero != true {
+        return None;
+    }
+    
+    return Some(res);
 }
 
 
@@ -179,7 +240,13 @@ fn main() {
             Ok(msg_vec) => { 
                 //@todo remove this 1 hardcode (which is there to ignore the channel name parameter)
                 match msg_vec.get(1) {
-                    Some(string) => { handle_irc_message(string, &mut dem_controller, &re); },
+                    Some(string) => { 
+                        if let Some(cmds) = parse_irc_message(string, &re) {
+                            for &cmd in cmds.iter() {
+                                dem_controller.add_command(cmd);
+                            }
+                        }
+                    },
                     _ => ()
                 }
             },
