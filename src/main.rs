@@ -141,15 +141,20 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
         } else if let Some(bcap) = cap.name("button") {
             match last_command {
                 Some(command) => {
-                    cumulative_delay += command.duration.num_milliseconds() as u32;
                     match command.command {
                         InputCommand::Joystick{direction: _, strength: _} => {
+                            cumulative_delay += command.duration.num_milliseconds() as u32;
                             if command.duration.num_milliseconds() >= 17 {
                                 cumulative_delay -= 17;
                             }
                         },
                         InputCommand::Button{name: _, value: _} => {
-                            cumulative_delay += 34;
+                            if command.duration.num_milliseconds() == 167 {
+                                cumulative_delay += 500; //massive hack
+                            } else {
+                                cumulative_delay += command.duration.num_milliseconds() as u32;
+                            }
+                            cumulative_delay += 51;
                         }
                     }
                 },
