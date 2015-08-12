@@ -117,6 +117,8 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
                     if jdcap_units == "s" {
                         joystick_duration *= 1000;
                     }
+                } else {
+                    return None;
                 }
             }
             
@@ -143,28 +145,52 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
                 },
                 None =>  ()
             }
-            // button command - only one argument, the button to press
+            // button command - should have one or three groups:
+            // "button_name" (mandatory)
+            // "button_duration" (optional),
+            // "button_duration_units" (optional; must be present if joystick_duration is)
             println!("button command: {:?}", bcap);
+            
+            let mut button_name;
+            let mut button_duration: u32 = 167;
+            
+            if let Some(bncap) = cap.name("button_name") {
+                button_name = match bncap {
+                    "a" => ButtonName::A,
+                    "b" => ButtonName::B,
+                    "z" => ButtonName::Z,
+                    "l" => ButtonName::L,
+                    "r" => ButtonName::R,
+                    "start" => ButtonName::Start,
+                    "cup" => ButtonName::Cup,
+                    "cdown" => ButtonName::Cdown,
+                    "cleft" => ButtonName::Cleft,
+                    "cright" => ButtonName::Cright,
+                    "dup" => ButtonName::Dup,
+                    "ddown" => ButtonName::Ddown,
+                    "dleft" => ButtonName::Dleft,
+                    "dright" => ButtonName::Dright,
+                    _ => return None
+                };
+            } else {
+                return None;
+            }
+            
+            if let Some(bdcap) = cap.name("button_duration") {
+                button_duration = bdcap.parse().unwrap();
+                if let Some(bdcap_units) = cap.name("button_duration_units") {
+                    if bdcap_units == "s" {
+                        button_duration *= 1000;
+                    }
+                } else {
+                    return None;
+                }
+            }
+            
             let time_now = time::get_time();
             let command = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
-                                              duration: time::Duration::milliseconds(167),
-                                              command: InputCommand::Button { name: match bcap {
-                                                                                "a" => ButtonName::A,
-                                                                                "b" => ButtonName::B,
-                                                                                "z" => ButtonName::Z,
-                                                                                "l" => ButtonName::L,
-                                                                                "r" => ButtonName::R,
-                                                                                "start" => ButtonName::Start,
-                                                                                "cup" => ButtonName::Cup,
-                                                                                "cdown" => ButtonName::Cdown,
-                                                                                "cleft" => ButtonName::Cleft,
-                                                                                "cright" => ButtonName::Cright,
-                                                                                "dup" => ButtonName::Dup,
-                                                                                "ddown" => ButtonName::Ddown,
-                                                                                "dleft" => ButtonName::Dleft,
-                                                                                "dright" => ButtonName::Dright,
-                                                                                _ => return None },
-                                                                             value: true } };
+                                              duration: time::Duration::milliseconds(button_duration as i64),
+                                              command: InputCommand::Button { name: button_name, value: true } };
             res.push(command);
             
             last_command = Some(command.clone());
@@ -207,7 +233,7 @@ fn main() {
     
     // Our regex for parsing IRC messages - this is here so that it need not be instantiated every
     // time we handle an IRC message
-    let re = Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|z|l|r)|(?P<delay>[\+!]))\s*").unwrap();
+    let re = Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!]))\s*").unwrap();
     
     // Poll the IRC connection and handle its messages forever
     loop {
