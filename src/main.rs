@@ -82,7 +82,7 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
                 Some(command) => match command.command {
                     InputCommand::Joystick{direction: _, strength: _} => {
                         cumulative_delay += command.duration.num_milliseconds() as u32;
-                        cumulative_delay += 17;
+                        cumulative_delay += 51;
                     },
                     InputCommand::Button{name: _, value: _} => { cumulative_delay += IMPLICIT_CHAIN_DELAY }
                 },
@@ -140,6 +140,9 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
                 Some(command) => match command.command {
                     InputCommand::Joystick{direction: _, strength: _} => {
                         cumulative_delay += command.duration.num_milliseconds() as u32;
+                        if command.duration.num_milliseconds() >= 17 {
+                            cumulative_delay -= 17;
+                        }
                     },
                     InputCommand::Button{name: _, value: _} => { cumulative_delay += IMPLICIT_CHAIN_DELAY }
                 },
