@@ -24,7 +24,6 @@ use vn64c::InputCommand;
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
 const VJOY_DEVICE_NUMBER: u8 = 1;
-const IMPLICIT_CHAIN_DELAY: u32 = 500;
 
 // Parse the TPPM toml configuration file; return the server, password, nick, and channel
 fn parse_config_file() -> (String, String, String, String) {
@@ -79,12 +78,16 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
         // Our regex should match on exactly one of three groups: "joystick", "button", or "delay"
         if let Some(_) = cap.name("joystick") {
             match last_command {
-                Some(command) => match command.command {
-                    InputCommand::Joystick{direction: _, strength: _} => {
-                        cumulative_delay += command.duration.num_milliseconds() as u32;
-                        cumulative_delay += 51;
-                    },
-                    InputCommand::Button{name: _, value: _} => { cumulative_delay += IMPLICIT_CHAIN_DELAY }
+                Some(command) => {
+                    cumulative_delay += command.duration.num_milliseconds() as u32;
+                    match command.command {
+                        InputCommand::Joystick{direction: _, strength: _} => {
+                            cumulative_delay += 51;
+                        },
+                        InputCommand::Button{name: _, value: _} => {
+                            ()
+                        }
+                    }
                 },
                 None =>  ()
             }
@@ -137,14 +140,18 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
             last_command = Some(command.clone());
         } else if let Some(bcap) = cap.name("button") {
             match last_command {
-                Some(command) => match command.command {
-                    InputCommand::Joystick{direction: _, strength: _} => {
-                        cumulative_delay += command.duration.num_milliseconds() as u32;
-                        if command.duration.num_milliseconds() >= 17 {
-                            cumulative_delay -= 17;
+                Some(command) => {
+                    cumulative_delay += command.duration.num_milliseconds() as u32;
+                    match command.command {
+                        InputCommand::Joystick{direction: _, strength: _} => {
+                            if command.duration.num_milliseconds() >= 17 {
+                                cumulative_delay -= 17;
+                            }
+                        },
+                        InputCommand::Button{name: _, value: _} => {
+                            cumulative_delay += 34;
                         }
-                    },
-                    InputCommand::Button{name: _, value: _} => { cumulative_delay += IMPLICIT_CHAIN_DELAY }
+                    }
                 },
                 None =>  ()
             }
