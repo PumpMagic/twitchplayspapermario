@@ -90,8 +90,8 @@ impl DemC {
                             InputCommand::Button{name, value: _} => {
                                 // Is a button in a press-release cycle? If so, ignore vote
                                 // Otherwise, hold the button for as long as the command specified,
-                                // then release it indefinitely but for at least 0.0833 seconds
-                                // (5 frames, at 60fps)
+                                // then release it indefinitely but for at least 0.0498 seconds
+                                // (3 frames, at 60fps)
                                 let button_guard_index = get_button_guard_index(&name);
                                 
                                 match button_guards[button_guard_index].try_lock() {
@@ -104,7 +104,7 @@ impl DemC {
                                             thread::sleep_ms(command.duration.num_milliseconds() as u32);
                                             let command2 = InputCommand::Button { name: closure_button_name, value: false };
                                             closure_controller.change_input(&command2);
-                                            thread::sleep_ms(83);
+                                            thread::sleep_ms(50);
                                         });
                                     },
                                     _ => ()

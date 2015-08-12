@@ -14,6 +14,8 @@ use std::io::Read;
 
 use regex::Regex;
 
+use time::Duration;
+
 use vn64c::{Controller, ButtonName};
 use demc::DemC;
 use demc::TimedInputCommand;
@@ -42,39 +44,46 @@ fn parse_config_file() -> (String, String, String, String) {
 }
 
 
-// Handle an incoming IRC message by attempting to parse it as a controller command or series of
-// controller commands and queueing these commands for sending to the democratized controller
+// Attempt to parse an IRC message into a list of controller commands
 //@todo just use a custom state machine rather than regex, this has to be insanely slow
 //@todo this function is huge
-//@todo this will match messages with a single instance of a command no matter where that instance is
-// eg. "hah!" matches "a", "the one to the left" matches "left"...
 fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>> {
     let mut last_cap_end = None;
     let mut cumulative_delay: u32 = 0;
     let mut last_command: Option<TimedInputCommand> = None;
-    let mut cap_start_zero: bool = false;
+    let mut cap_start_zero = false;
     let mut final_cap_end: usize = 0;
     let mut res: Vec<TimedInputCommand> = Vec::new();
     
     for cap in re.captures_iter(&msg.to_lowercase()) {
-        // Make sure that all captures are continuous; that is, we're parsing commands and only commands
+        let (cap_start, cap_end) = cap.pos(0).unwrap();
+
+        // Raise a flag if this capture starts at the first string position - after iterating over all captures, we'll
+        // make sure it was raised, and if it wasn't, we didn't parse a valid command message
+        if cap_start == 0 {
+            cap_start_zero = true;
+        }
+
+        // Make sure that all captures are continuous; that we're parsing commands and only commands
         // eg. we don't want "hahah" to parse as two "a" commands
-        let (cap_start, cap_end) = cap.pos(0).unwrap(); //@todo don't rely on capture position 0 existing
         if let Some(last_cap_end) = last_cap_end {
             if last_cap_end != cap_start {
                 return None;
             }
         }
+
+        // Store the last capture's ending position - after iterating over all captures, we'll make sure the last one
+        // ended
         final_cap_end = cap_end;
-        if cap_start == 0 {
-            cap_start_zero = true;
-        }
-        
+
         // Our regex should match on exactly one of three groups: "joystick", "button", or "delay"
-        if let Some(jcap) = cap.name("joystick") {
+        if let Some(_) = cap.name("joystick") {
             match last_command {
                 Some(command) => match command.command {
-                    InputCommand::Joystick{direction: _, strength: _} => { cumulative_delay += command.duration.num_milliseconds() as u32; },
+                    InputCommand::Joystick{direction: _, strength: _} => {
+                        cumulative_delay += command.duration.num_milliseconds() as u32;
+                        cumulative_delay += 17;
+                    },
                     InputCommand::Button{name: _, value: _} => { cumulative_delay += IMPLICIT_CHAIN_DELAY }
                 },
                 None =>  ()
@@ -84,8 +93,6 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
             // "joystick_direction" (mandatory)
             // "joystick_duration" (optional),
             // "joystick_duration_units" (optional; must be present if joystick_duration is)
-            println!("joystick command: {:?}", jcap);
-            
             let mut joystick_strength: f32 = 1.0;
             let mut joystick_direction: u16 = 0;
             let mut joystick_duration: u32 = 500;
@@ -101,6 +108,8 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
                     "right" => { joystick_direction = 0; },
                     _ => ()
                 }
+            } else {
+                return None;
             }
             if let Some(jdcap) = cap.name("joystick_duration") {
                 joystick_duration = jdcap.parse().unwrap();
@@ -127,7 +136,9 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
         } else if let Some(bcap) = cap.name("button") {
             match last_command {
                 Some(command) => match command.command {
-                    InputCommand::Joystick{direction: _, strength: _} => { cumulative_delay += command.duration.num_milliseconds() as u32; },
+                    InputCommand::Joystick{direction: _, strength: _} => {
+                        cumulative_delay += command.duration.num_milliseconds() as u32;
+                    },
                     InputCommand::Button{name: _, value: _} => { cumulative_delay += IMPLICIT_CHAIN_DELAY }
                 },
                 None =>  ()
@@ -135,72 +146,36 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
             // button command - only one argument, the button to press
             println!("button command: {:?}", bcap);
             let time_now = time::get_time();
-            let command = match bcap {
-                "a" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::A,
-                                                                            value: true} },
-                "b" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::B,
-                                                                            value: true} },
-                "z" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Z,
-                                                                            value: true} },
-                "l" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::L,
-                                                                            value: true} },
-                "r" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::R,
-                                                                            value: true} },
-                "start" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Start,
-                                                                            value: true} },
-                "cup" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Cup,
-                                                                            value: true} },
-                "cdown" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Cdown,
-                                                                            value: true} },
-                "cleft" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Cleft,
-                                                                            value: true} },
-                "cright" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Cright,
-                                                                            value: true} },
-                "dup" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Dup,
-                                                                            value: true} },
-                "ddown" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Ddown,
-                                                                            value: true} },
-                "dleft" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Dleft,
-                                                                            value: true} },
-                "dright" => TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                            duration: time::Duration::milliseconds(167),
-                                            command: InputCommand::Button { name: ButtonName::Dright,
-                                                                            value: true} },
-                _ => return None
-            };
+            let command = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
+                                              duration: time::Duration::milliseconds(167),
+                                              command: InputCommand::Button { name: match bcap {
+                                                                                "a" => ButtonName::A,
+                                                                                "b" => ButtonName::B,
+                                                                                "z" => ButtonName::Z,
+                                                                                "l" => ButtonName::L,
+                                                                                "r" => ButtonName::R,
+                                                                                "start" => ButtonName::Start,
+                                                                                "cup" => ButtonName::Cup,
+                                                                                "cdown" => ButtonName::Cdown,
+                                                                                "cleft" => ButtonName::Cleft,
+                                                                                "cright" => ButtonName::Cright,
+                                                                                "dup" => ButtonName::Dup,
+                                                                                "ddown" => ButtonName::Ddown,
+                                                                                "dleft" => ButtonName::Dleft,
+                                                                                "dright" => ButtonName::Dright,
+                                                                                _ => return None },
+                                                                             value: true } };
             res.push(command);
             
             last_command = Some(command.clone());
         } else if let Some(dcap) = cap.name("delay") {
             // delay command - only one argument, the delay to insert
             println!("delay command: {:?}", dcap);
-            cumulative_delay += 17;
+            match dcap {
+                "+" => { cumulative_delay += 17; },
+                "!" => { cumulative_delay += 217; },
+                _ => { return None; }
+            }
             last_command = None
         }
         
@@ -225,14 +200,14 @@ fn main() {
     
     // Initialize a democratized virtual N64 controller
     let controller = Controller::new(VJOY_DEVICE_NUMBER).unwrap();
-    let mut dem_controller = DemC::new(controller);
+    let dem_controller = DemC::new(controller);
     
     // Start our IRC connection
     let irc_connection = irc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
     
     // Our regex for parsing IRC messages - this is here so that it need not be instantiated every
     // time we handle an IRC message
-    let re = Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|z|l|r)|(?P<delay>\+))\s?").unwrap();
+    let re = Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|z|l|r)|(?P<delay>[\+!]))\s*").unwrap();
     
     // Poll the IRC connection and handle its messages forever
     loop {
