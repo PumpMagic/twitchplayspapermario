@@ -100,8 +100,10 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
             let mut joystick_direction: u16 = 0;
             let mut joystick_duration: u32 = 500;
             if let Some(jscap) = cap.name("joystick_strength") {
-                let strength_u8: u8 = jscap.parse().unwrap();
-                joystick_strength = strength_u8 as f32 / 100.0;
+                match jscap.parse::<u8>() {
+                    Ok(strength_u8) => { joystick_strength = strength_u8 as f32 / 100.0; },
+                    _ => return None
+                }
             }
             if let Some(jdcap) = cap.name("joystick_direction") {
                 match jdcap {
@@ -115,7 +117,11 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
                 return None;
             }
             if let Some(jdcap) = cap.name("joystick_duration") {
-                joystick_duration = jdcap.parse().unwrap();
+                match jdcap.parse::<u32>() {
+                    Ok(duration_u32) => { joystick_duration = duration_u32; },
+                    _ => return None
+                }
+                
                 if let Some(jdcap_units) = cap.name("joystick_duration_units") {
                     if jdcap_units == "s" {
                         joystick_duration *= 1000;
@@ -192,7 +198,11 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
             }
             
             if let Some(bdcap) = cap.name("button_duration") {
-                button_duration = bdcap.parse().unwrap();
+                match bdcap.parse::<u32>() {
+                    Ok(duration_u32) => { button_duration = duration_u32; },
+                    _ => return None
+                }
+                
                 if let Some(bdcap_units) = cap.name("button_duration_units") {
                     if bdcap_units == "s" {
                         button_duration *= 1000;
