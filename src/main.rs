@@ -24,6 +24,9 @@ use vn64c::InputCommand;
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
 const VJOY_DEVICE_NUMBER: u8 = 1;
+const MAX_JOYSTICK_COMMAND_DURATION: u32 = 5000;
+const MAX_BUTTON_COMMAND_DURATION: u32 = 5000;
+
 
 // Parse the TPPM toml configuration file; return the server, password, nick, and channel
 fn parse_config_file() -> (String, String, String, String) {
@@ -132,7 +135,7 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
             }
             
             // treat joystick commands with strength <0%, >100% or duration >5s as invalid
-            if joystick_strength > 1.0 || joystick_strength < 0.0 || joystick_duration > 5000 {
+            if joystick_strength > 1.0 || joystick_strength < 0.0 || joystick_duration > MAX_JOYSTICK_COMMAND_DURATION {
                 return None;
             }
             
@@ -210,6 +213,10 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
                 } else {
                     return None;
                 }
+            }
+
+            if button_duration > MAX_BUTTON_COMMAND_DURATION {
+                return None;
             }
             
             let time_now = time::get_time();

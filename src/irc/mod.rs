@@ -225,6 +225,8 @@ impl IrcConnection {
                         }
                     },
                     Command::Privmsg => {
+                        // RFC 1459: <prefix>   ::= <servername> | <nick> [ '!' <user> ] [ '@' <host> ]
+                        //println!("{:?}", m);
                         match m.params {
                             Some(params) => {
                                 /*
