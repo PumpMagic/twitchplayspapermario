@@ -9,9 +9,49 @@ use std::sync::mpsc;
 
 use regex::Regex;
 
+
+#[derive(Debug)]
+pub struct Prefix {
+    pub servername_nick: String,
+    pub user: Option<String>,
+    pub host: Option<String>
+}
+
+impl Prefix {
+    fn from_str(prefix: &str) -> Option<Self> {
+        let re = Regex::new(r"(?P<servername_nick>[^!]*)(!(?P<user>[^@]*))?(@(?P<host>.*))?").unwrap();
+        
+        let cap = match re.captures(prefix) {
+            Some(cap) => cap,
+            None => return None
+        };
+        
+        let servername_nick_group = cap.name("servername_nick");
+        let user_group = cap.name("user");
+        let host_group = cap.name("host");
+        
+        if let None = servername_nick_group {
+            return None;
+        }
+        
+        Some(Prefix {
+            servername_nick: FromStr::from_str(servername_nick_group.unwrap()).unwrap(),
+            user: match user_group {
+                Some(user) => Some(FromStr::from_str(user).unwrap()),
+                None => None
+            },
+            host: match host_group {
+                Some(host) => Some(FromStr::from_str(host).unwrap()),
+                None => None
+            }
+        })
+    }
+}
+
+
 // A small subset of IRC command types
 #[derive(Debug)]
-enum Command {
+pub enum Command {
     ReplyWelcome,
     Pass,
     Nick,
@@ -48,10 +88,10 @@ impl Command {
 
 // A representation of an IRC message
 #[derive(Debug)]
-struct IrcMessage {
-    prefix: Option<String>,
-    command: Command,
-    params: Option<Vec<String>>
+pub struct IrcMessage {
+    pub prefix: Option<Prefix>,
+    pub command: Command,
+    pub params: Option<Vec<String>>
 }
 
 impl IrcMessage {
@@ -81,13 +121,13 @@ impl IrcMessage {
         // into a list of Strings
         Some(IrcMessage {
             prefix: match prefix {
-                Some(prefix) => Some(FromStr::from_str(prefix).unwrap()),
+                Some(prefix) => Prefix::from_str(prefix),
                 None => None
             },
 
             command: match command {
                 Some(command) => Command::from_string(command),
-                _ =>  return None // our regex couldn't parse a command; the command is mandatory
+                _ => return None // our regex couldn't parse a command; the command is mandatory
             },
 
             params: match params {
@@ -131,10 +171,27 @@ impl IrcMessage {
     fn into_string(self) -> String {
         let mut result = String::new();
         
-        if self.prefix.is_some() {
-            result.push_str(":");
-            result.push_str(&self.prefix.unwrap());
-            result.push_str(" ");
+        match self.prefix {
+            Some(prefix) => {
+                result.push_str(":");
+                result.push_str(&prefix.servername_nick);
+                match prefix.user {
+                    Some(user) => {
+                        result.push_str("!");
+                        result.push_str(&user);
+                    },
+                    None => ()
+                };
+                match prefix.host {
+                    Some(host) => {
+                        result.push_str("@");
+                        result.push_str(&host);
+                    },
+                    None => ()
+                };
+                result.push_str(" ");
+            },
+            None => ()
         }
         
         result.push_str(&self.command.as_str());
@@ -168,7 +225,7 @@ impl IrcMessage {
 
 pub struct IrcConnection {
     join_handle: thread::JoinHandle<()>,
-    rx_privmsg: mpsc::Receiver<Vec<String>>,
+    rx_privmsg: mpsc::Receiver<IrcMessage>,
     tx_kill: mpsc::Sender<()>
 }
 
@@ -225,26 +282,11 @@ impl IrcConnection {
                         }
                     },
                     Command::Privmsg => {
-                        // RFC 1459: <prefix>   ::= <servername> | <nick> [ '!' <user> ] [ '@' <host> ]
-                        //println!("{:?}", m);
-                        match m.params {
-                            Some(params) => {
-                                /*
-                                for x in params.iter() {
-                                    println!("\t {}", x);
-                                }
-                                */
-                                
-                                if params.len() > 0 {
-                                    match tx_privmsg.send(params) {
-                                        Ok(_) => (),
-                                        Err(err) => println!("Error sending received IRC message to user\
-                                                              app: {}", err)
-                                    };
-                                }
-                            },
-                            _ => ()
-                        }
+                        match tx_privmsg.send(m) {
+                            Ok(_) => (),
+                            Err(err) => println!("Error sending received IRC message to user\
+                                                  app: {}", err)
+                        };
                     }
                     _ => ()
                 }
@@ -258,7 +300,7 @@ impl IrcConnection {
         self.join_handle.join();
     }
     
-    pub fn receive_privmsg(&self) -> Result<Vec<String>, mpsc::RecvError> {
+    pub fn receive_privmsg(&self) -> Result<IrcMessage, mpsc::RecvError> {
         self.rx_privmsg.recv()
     }
     

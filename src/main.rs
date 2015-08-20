@@ -1,6 +1,7 @@
 #![allow(unused_must_use)]
 
 mod irc;
+mod tmi;
 mod vn64c;
 mod demc;
 
@@ -49,7 +50,7 @@ fn parse_config_file() -> (String, String, String, String) {
 // Attempt to parse an IRC message into a list of controller commands
 //@todo just use a custom state machine rather than regex, this has to be insanely slow
 //@todo this function is huge
-fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>> {
+fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>> {
     let mut last_cap_end = None;
     let mut cumulative_delay: u32 = 0;
     let mut last_command: Option<TimedInputCommand> = None;
@@ -147,7 +148,7 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
             res.push(command);
             
             last_command = Some(command.clone());
-        } else if let Some(bcap) = cap.name("button") {
+        } else if let Some(_) = cap.name("button") {
             match last_command {
                 Some(command) => {
                     match command.command {
@@ -173,8 +174,6 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
             // "button_name" (mandatory)
             // "button_duration" (optional),
             // "button_duration_units" (optional; must be present if joystick_duration is)
-            println!("button command: {:?}", bcap);
-            
             let mut button_name;
             let mut button_duration: u32 = 167;
             
@@ -228,7 +227,6 @@ fn parse_irc_message(msg: &String, re: &Regex) -> Option<Vec<TimedInputCommand>>
             last_command = Some(command.clone());
         } else if let Some(dcap) = cap.name("delay") {
             // delay command - only one argument, the delay to insert
-            println!("delay command: {:?}", dcap);
             match dcap {
                 "+" => { cumulative_delay += 17; },
                 "!" => { cumulative_delay += 217; },
@@ -270,17 +268,14 @@ fn main() {
     // Poll the IRC connection and handle its messages forever
     loop {
         match irc_connection.receive_privmsg() {
-            Ok(msg_vec) => { 
+            Ok(msg) => { 
                 //@todo remove this 1 hardcode (which is there to ignore the channel name parameter)
-                match msg_vec.get(1) {
-                    Some(string) => { 
-                        if let Some(cmds) = parse_irc_message(string, &re) {
-                            for &cmd in cmds.iter() {
-                                dem_controller.add_command(cmd);
-                            }
-                        }
-                    },
-                    _ => ()
+                let (sender, message) = tmi::parse_irc_message_as_tmi(msg).unwrap();
+                println!("{}: {}", sender, message);
+                if let Some(cmds) = parse_string_as_commands(&message, &re) {
+                    for &cmd in cmds.iter() {
+                        dem_controller.add_command(cmd);
+                    }
                 }
             },
             _ => ()
