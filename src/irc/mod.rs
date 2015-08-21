@@ -305,7 +305,7 @@ impl Into<String> for IrcMessage {
         }
         
         result.push_str("\r\n");
-
+        
         result
     }
 }
@@ -315,14 +315,15 @@ impl Into<String> for IrcMessage {
 pub struct IrcConnection {
     join_handle: thread::JoinHandle<()>,
     rx_privmsg: mpsc::Receiver<IrcMessage>,
-    tx_kill: mpsc::Sender<()>
+    tx_kill: mpsc::Sender<()>,
 }
+
 
 impl IrcConnection {
     // Spawn a thread that establishes and maintains an IRC connection
     pub fn spawn(server: String, pass: String, nick: String, channel: String) -> Result<IrcConnection, ()> {
         // Establish a TCP stream with our target server
-        let stream = match TcpStream::connect(&server[..]) {
+        let mut stream = match TcpStream::connect(&server[..]) {
             Ok(stream) => stream,
             Err(_) => return Err(())
         };
@@ -332,22 +333,17 @@ impl IrcConnection {
         let (tx_privmsg, rx_privmsg) = mpsc::channel();
         let (tx_kill, rx_kill) = mpsc::channel();
         
-        // We're going to spawn a thread that services an IRC connection - we contain all of the
-        // information that thread will need in an "internal" IRC connection struct and give it
-        // ownership of that struct
-        let irc_connection_internal = IrcConnectionInternal { tcp_stream: stream, server: server, pass: pass, nick: nick, channel: channel };
-        
         // Spawn an IRC connection servicing thread. This thread maintains an IRC connection and
         // passes chat messages (privmsgs) through one of its channels
         let join_handle = thread::spawn(move|| {
             // Send the server our credentials
             //@todo implement log in failure recovery
-            match irc_connection_internal.send_credentials() {
+            match IrcConnection::send_credentials(&mut stream, &pass, &nick) {
                 Ok(_) => (),
                 Err(_) => panic!("Unable to send credentials!")
             }
             
-            match irc_connection_internal.send_join() {
+            match IrcConnection::send_join(&mut stream, &channel) {
                 Ok(_) => (),
                 Err(_) => panic!("Unable to join target channel!")
             }
@@ -359,14 +355,13 @@ impl IrcConnection {
                     Err(_) => ()
                 }
                 
-                let m = irc_connection_internal.get_message();
-                //println!("\t\t::prefix:: {:?} ::command:: {:?}: ::params::{:?}\n", m.prefix, m.command, m.params);
+                let m = IrcConnection::get_message(&mut stream);
                 match m.command {
                     // as a bot, all we really care about is:
                     // did the server ping us? if so, pong it
                     // did another client send a message? if so, pass it to our user
                     Command::Ping => {
-                        match irc_connection_internal.send_pong() {
+                        match IrcConnection::send_pong(&mut stream) {
                             Ok(_) => (),
                             Err(_) => panic!("Unable to send pong!")
                         }
@@ -397,23 +392,11 @@ impl IrcConnection {
     pub fn kill(&self) {
         self.tx_kill.send(());
     }
-}
-
-
-// The internal structures and configuration required to maintain an IRC connection
-struct IrcConnectionInternal {
-    tcp_stream: TcpStream,
     
-    server: String,
-    pass: String,
-    nick: String,
-    channel: String,
-}
-
-impl IrcConnectionInternal {
+    
     // Get a message from an IRC channel.
     //@todo make this nonblocking - any way to do this without function-local static?
-    fn get_message(&self) -> IrcMessage {
+    fn get_message(stream: &mut TcpStream) -> IrcMessage {
         loop {
             // Receive a message from the server as raw bytes.
             // We'll convert it to a String once we've received the whole thing, to simplify parsing
@@ -424,15 +407,16 @@ impl IrcConnectionInternal {
             let mut valid_message_received = false;
             loop {
                 let mut read_byte_vec: Vec<u8> = Vec::with_capacity(1);
-
-                let read_result = (&(self.tcp_stream)).take(1).read_to_end(&mut read_byte_vec);
+                
+                let mut read_adaptor = stream.take(1);
+                let read_result = read_adaptor.read_to_end(&mut read_byte_vec);
                 match read_result {
                     Result::Ok(_) => {
                         match read_byte_vec.get(0) {
                             Some(byte) => { response.push(*byte); },
-                            _ => {
-                                println!("Read from TCP stream, but received data vector empty...");
-                                break;
+                            None => {
+                                println!("Stream EOF. Closed by other party?");
+                                panic!("Implement reconnect!");
                             }
                         }
                         if last_two_are_crlf(&response) {
@@ -462,43 +446,55 @@ impl IrcConnectionInternal {
             }
         }
     }
-
+    
     // Consider making a Message serializer...
-    fn send_message(&self, message: IrcMessage) -> Result<(), ()> {
+    fn send_message(stream: &mut TcpStream, message: IrcMessage) -> Result<(), ()> {
         let message_string: String = message.into();
         
-        match (&(self.tcp_stream)).write_all(message_string.as_bytes()) {
+        match stream.write_all(message_string.as_bytes()) {
             Ok(_) => Ok(()),
             Err(_) => Err(())
         }
     }
-
-    fn send_credentials(&self) -> Result<(), ()> {
-        let pass_message = IrcMessage { prefix: None, command: Command::Pass, params: Some(Params::from(vec![self.pass.clone()])) };
-        let nick_message = IrcMessage { prefix: None, command: Command::Nick, params: Some(Params::from(vec![self.nick.clone()])) };
+    
+    fn send_credentials(stream: &mut TcpStream, pass: &String, nick: &String) -> Result<(), ()> {
+        let pass_message = IrcMessage { prefix: None, command: Command::Pass, params: Some(Params::from(vec![pass.clone()])) };
+        let nick_message = IrcMessage { prefix: None, command: Command::Nick, params: Some(Params::from(vec![nick.clone()])) };
         
-        try!(self.send_message(pass_message));
-        try!(self.send_message(nick_message));
-        
-        Ok(())
-    }
-
-    fn send_join(&self) -> Result<(), ()> {
-        let join_message = IrcMessage { prefix: None, command: Command::Join, params: Some(Params::from(vec![self.channel.clone()])) };
-        
-        try!(self.send_message(join_message));
+        try!(IrcConnection::send_message(stream, pass_message));
+        try!(IrcConnection::send_message(stream, nick_message));
         
         Ok(())
     }
 
-    fn send_pong(&self) -> Result<(), ()> {
+    fn send_join(stream: &mut TcpStream, channel: &String) -> Result<(), ()> {
+        let join_message = IrcMessage { prefix: None, command: Command::Join, params: Some(Params::from(vec![channel.clone()])) };
+        
+        try!(IrcConnection::send_message(stream, join_message));
+        
+        Ok(())
+    }
+
+    fn send_pong(stream: &mut TcpStream) -> Result<(), ()> {
         let pong_message = IrcMessage { prefix: None, command: Command::Pong, params: None };
         
-        try!(self.send_message(pong_message));
+        try!(IrcConnection::send_message(stream, pong_message));
         
         Ok(())
     }
 }
+
+
+// The internal structures and configuration required to maintain an IRC connection
+struct IrcConnectionInternal {
+
+    
+    server: String,
+    pass: String,
+    nick: String,
+    channel: String,
+}
+
 
 
 fn last_two_are_crlf(vec: &Vec<u8>) -> bool {
