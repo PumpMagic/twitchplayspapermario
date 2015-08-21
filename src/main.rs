@@ -5,7 +5,6 @@ mod tmi;
 mod vn64c;
 mod demc;
 
-#[macro_use]
 extern crate regex;
 extern crate toml;
 extern crate time;
