@@ -1,6 +1,5 @@
 #![allow(unused_must_use)]
 
-mod irc;
 mod tmi;
 mod vn64c;
 mod demc;
@@ -258,7 +257,7 @@ fn main() {
     let dem_controller = DemC::new(controller);
     
     // Start our IRC connection
-    let irc_connection = irc::IrcConnection::spawn(server, pass, nick, channel).unwrap();
+    let tmi_stream = tmi::spawn(server, pass, nick, channel);
     
     // Our regex for parsing IRC messages - this is here so that it need not be instantiated every
     // time we handle an IRC message
@@ -266,18 +265,12 @@ fn main() {
     
     // Poll the IRC connection and handle its messages forever
     loop {
-        match irc_connection.receive_privmsg() {
-            Ok(msg) => { 
-                //@todo remove this 1 hardcode (which is there to ignore the channel name parameter)
-                let (sender, message) = tmi::parse_irc_message_as_tmi(msg).unwrap();
-                println!("{}: {}", sender, message);
-                if let Some(cmds) = parse_string_as_commands(&message, &re) {
-                    for &cmd in cmds.iter() {
-                        dem_controller.add_command(cmd);
-                    }
-                }
-            },
-            _ => ()
+        let (sender, message) = tmi::receive(&tmi_stream);
+        println!("{}: {}", sender, message);
+        if let Some(cmds) = parse_string_as_commands(&message, &re) {
+            for &cmd in cmds.iter() {
+                dem_controller.add_command(cmd);
+            }
         }
     }
 }
