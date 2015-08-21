@@ -257,7 +257,7 @@ fn main() {
     let dem_controller = DemC::new(controller);
     
     // Start our IRC connection
-    let tmi_stream = tmi::spawn(server, pass, nick, channel);
+    let tmi_stream = tmi::TmiStream::establish(server, pass, nick, channel).unwrap();
     
     // Our regex for parsing IRC messages - this is here so that it need not be instantiated every
     // time we handle an IRC message
@@ -265,7 +265,7 @@ fn main() {
     
     // Poll the IRC connection and handle its messages forever
     loop {
-        let (sender, message) = tmi::receive(&tmi_stream);
+        let (sender, message) = tmi_stream.receive();
         println!("{}: {}", sender, message);
         if let Some(cmds) = parse_string_as_commands(&message, &re) {
             for &cmd in cmds.iter() {

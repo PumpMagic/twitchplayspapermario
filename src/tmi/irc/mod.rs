@@ -312,16 +312,16 @@ impl Into<String> for IrcMessage {
 
 
 // Public interface to an IRC connection
-pub struct IrcConnection {
+pub struct IrcStream {
     join_handle: thread::JoinHandle<()>,
     rx_privmsg: mpsc::Receiver<IrcMessage>,
     tx_kill: mpsc::Sender<()>,
 }
 
 
-impl IrcConnection {
+impl IrcStream {
     // Spawn a thread that establishes and maintains an IRC connection
-    pub fn spawn(server: String, pass: String, nick: String, channel: String) -> Result<IrcConnection, ()> {
+    pub fn establish(server: String, pass: String, nick: String, channel: String) -> Result<IrcStream, ()> {
         // Establish a TCP stream with our target server
         let mut stream = match TcpStream::connect(&server[..]) {
             Ok(stream) => stream,
@@ -333,17 +333,17 @@ impl IrcConnection {
         let (tx_privmsg, rx_privmsg) = mpsc::channel();
         let (tx_kill, rx_kill) = mpsc::channel();
         
-        // Spawn an IRC connection servicing thread. This thread maintains an IRC connection and
+        // Spawn an IRC stream servicing thread. This thread maintains an IRC connection and
         // passes chat messages (privmsgs) through one of its channels
         let join_handle = thread::spawn(move|| {
             // Send the server our credentials
             //@todo implement log in failure recovery
-            match IrcConnection::send_credentials(&mut stream, &pass, &nick) {
+            match IrcStream::send_credentials(&mut stream, &pass, &nick) {
                 Ok(_) => (),
                 Err(_) => panic!("Unable to send credentials!")
             }
             
-            match IrcConnection::send_join(&mut stream, &channel) {
+            match IrcStream::send_join(&mut stream, &channel) {
                 Ok(_) => (),
                 Err(_) => panic!("Unable to join target channel!")
             }
@@ -355,13 +355,13 @@ impl IrcConnection {
                     Err(_) => ()
                 }
                 
-                let m = IrcConnection::get_message(&mut stream);
+                let m = IrcStream::get_message(&mut stream);
                 match m.command {
                     // as a bot, all we really care about is:
                     // did the server ping us? if so, pong it
                     // did another client send a message? if so, pass it to our user
                     Command::Ping => {
-                        match IrcConnection::send_pong(&mut stream) {
+                        match IrcStream::send_pong(&mut stream) {
                             Ok(_) => (),
                             Err(_) => panic!("Unable to send pong!")
                         }
@@ -378,7 +378,7 @@ impl IrcConnection {
             }
         });
         
-        Ok( IrcConnection { join_handle: join_handle, rx_privmsg: rx_privmsg, tx_kill: tx_kill } )
+        Ok( IrcStream { join_handle: join_handle, rx_privmsg: rx_privmsg, tx_kill: tx_kill } )
     }
     
     pub fn join(self) {
@@ -461,8 +461,8 @@ impl IrcConnection {
         let pass_message = IrcMessage { prefix: None, command: Command::Pass, params: Some(Params::from(vec![pass.clone()])) };
         let nick_message = IrcMessage { prefix: None, command: Command::Nick, params: Some(Params::from(vec![nick.clone()])) };
         
-        try!(IrcConnection::send_message(stream, pass_message));
-        try!(IrcConnection::send_message(stream, nick_message));
+        try!(IrcStream::send_message(stream, pass_message));
+        try!(IrcStream::send_message(stream, nick_message));
         
         Ok(())
     }
@@ -470,7 +470,7 @@ impl IrcConnection {
     fn send_join(stream: &mut TcpStream, channel: &String) -> Result<(), ()> {
         let join_message = IrcMessage { prefix: None, command: Command::Join, params: Some(Params::from(vec![channel.clone()])) };
         
-        try!(IrcConnection::send_message(stream, join_message));
+        try!(IrcStream::send_message(stream, join_message));
         
         Ok(())
     }
@@ -478,23 +478,11 @@ impl IrcConnection {
     fn send_pong(stream: &mut TcpStream) -> Result<(), ()> {
         let pong_message = IrcMessage { prefix: None, command: Command::Pong, params: None };
         
-        try!(IrcConnection::send_message(stream, pong_message));
+        try!(IrcStream::send_message(stream, pong_message));
         
         Ok(())
     }
 }
-
-
-// The internal structures and configuration required to maintain an IRC connection
-struct IrcConnectionInternal {
-
-    
-    server: String,
-    pass: String,
-    nick: String,
-    channel: String,
-}
-
 
 
 fn last_two_are_crlf(vec: &Vec<u8>) -> bool {
