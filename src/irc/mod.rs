@@ -149,10 +149,10 @@ pub struct Params(Vec<String>);
 // Convert a set of parameters into a String
 impl Into<String> for Params {
     fn into(self) -> String {
-        let mut result = String::from(":");
+        let mut result = String::new();
 
         // C-style... is there a better way to identify the last element?
-        let iter = self.0.iter();
+        let iter = self.iter();
         let num_params = iter.clone().count();
         let mut param_on = 0;
 
@@ -305,7 +305,7 @@ impl Into<String> for IrcMessage {
         }
         
         result.push_str("\r\n");
-        
+
         result
     }
 }
