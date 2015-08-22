@@ -8,8 +8,11 @@ extern crate regex;
 extern crate toml;
 extern crate time;
 
+use std::path::Path;
 use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::Read;
+use std::io::Write;
 
 use regex::Regex;
 
@@ -22,6 +25,7 @@ use vn64c::InputCommand;
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
+const CHAT_LOG_PATH: &'static str = "chat.txt";
 const VJOY_DEVICE_NUMBER: u8 = 1;
 const MAX_JOYSTICK_COMMAND_DURATION: u32 = 5000;
 const MAX_BUTTON_COMMAND_DURATION: u32 = 5000;
@@ -262,15 +266,30 @@ fn main() {
     // Our regex for parsing IRC messages - this is here so that it need not be instantiated every
     // time we handle an IRC message
     let re = Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!]))\s*").unwrap();
-    
+
+    let chat_log_path = Path::new(CHAT_LOG_PATH);
+    let mut chat_log_file = match OpenOptions::new().read(true).write(true).append(true).create(true).
+                                  open(&chat_log_path)
+    {
+        Ok(file) => file,
+        Err(reason) => panic!("Couldn't open chat log file for writing! {}", std::error::Error::description(&reason))
+    };
+
     // Poll the IRC connection and handle its messages forever
     loop {
         let (sender, message) = tmi_stream.receive();
-        println!("{}: {}", sender, message);
+        let mut log_string: String;
         if let Some(cmds) = parse_string_as_commands(&message, &re) {
             for &cmd in cmds.iter() {
                 dem_controller.add_command(cmd);
             }
+            log_string = format!("_{}: {}", sender, message)
+        } else {
+            log_string = format!("{}: {}", sender, message)
         }
+
+        chat_log_file.write_all(&log_string.as_bytes());
+        chat_log_file.write_all("\r\n".as_bytes());
+        chat_log_file.flush();
     }
 }
