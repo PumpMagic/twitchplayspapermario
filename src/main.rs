@@ -18,7 +18,7 @@ use regex::Regex;
 
 use time::Duration;
 
-use vn64c::{Controller, ButtonName};
+use vn64c::ButtonName;
 use demc::DemC;
 use demc::TimedInputCommand;
 use vn64c::InputCommand;
@@ -257,8 +257,7 @@ fn main() {
     let (server, pass, nick, channel) = parse_config_file();
     
     // Initialize a democratized virtual N64 controller
-    let controller = Controller::new(VJOY_DEVICE_NUMBER).unwrap();
-    let dem_controller = DemC::new(controller);
+    let controller = DemC::new(VJOY_DEVICE_NUMBER).unwrap();
     
     // Start our IRC connection
     let tmi_stream = tmi::TmiStream::establish(server, pass, nick, channel).unwrap();
@@ -281,7 +280,7 @@ fn main() {
         let mut log_string: String;
         if let Some(cmds) = parse_string_as_commands(&message, &re) {
             for &cmd in cmds.iter() {
-                dem_controller.add_command(cmd);
+                controller.add_command(cmd);
             }
             log_string = format!("_{}: {}", sender, message)
         } else {

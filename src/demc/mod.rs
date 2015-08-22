@@ -47,7 +47,13 @@ pub struct DemC {
 }
 
 impl DemC {
-    pub fn new(controller: Controller) -> DemC {
+    pub fn new(vjoy_device_number: u8) -> Result<DemC, u8> {
+        let controller_result = Controller::new(vjoy_device_number);
+        let controller = match controller_result {
+            Ok(controller) => controller,
+            Err(_) => return Err(1)
+        };
+
         let arc_controller = Arc::new(controller);
         
         let (tx_command, rx_command) = mpsc::channel();
@@ -176,9 +182,9 @@ impl DemC {
             }
         });
         
-        DemC { controller: arc_controller,
+        Ok( DemC { controller: arc_controller,
                tx_command: tx_command,
-               command_listener: command_listener }
+               command_listener: command_listener } )
     }
     
     
