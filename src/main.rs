@@ -83,10 +83,6 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
         // Store the last capture's ending position - after iterating over all captures, we'll make sure the last one
         // ended
         final_cap_end = cap_end;
-
-        if cumulative_delay > MAX_DURATION_PER_LINE {
-            return None;
-        }
         
         // Our regex should match on exactly one of three groups: "joystick", "button", or "delay"
         if let Some(_) = cap.name("joystick") {
@@ -253,6 +249,10 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
         last_cap_end = Some(cap_end);
     }
     
+	if cumulative_delay > MAX_DURATION_PER_LINE {
+			return None;
+	}
+	
     if final_cap_end != msg.len() {
         return None;
     }

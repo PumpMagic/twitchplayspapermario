@@ -110,7 +110,7 @@ impl DemC {
                                             thread::sleep_ms(command.duration.num_milliseconds() as u32);
                                             let command2 = InputCommand::Button { name: closure_button_name, value: false };
                                             closure_controller.change_input(&command2);
-                                            thread::sleep_ms(17);
+                                            thread::sleep_ms(34);
                                         });
                                     },
                                     _ => ()
