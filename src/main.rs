@@ -241,6 +241,13 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             match dcap {
                 "+" => { cumulative_delay += 17; },
                 "!" => { cumulative_delay += 217; },
+                "." => {
+                    match last_command {
+                        Some(command) => { cumulative_delay += command.duration.num_milliseconds() as u32; },
+                        None =>  ()
+                    }
+                    cumulative_delay += 250;
+                },
                 _ => { return None; }
             }
             last_command = None
@@ -277,7 +284,7 @@ fn main() {
     
     // Our regex for parsing IRC messages - this is here so that it need not be instantiated every
     // time we handle an IRC message
-    let re = Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!]))\s*").unwrap();
+    let re = Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!\.]))\s*").unwrap();
 
     let chat_log_path = Path::new(CHAT_LOG_PATH);
     let mut chat_log_file = match OpenOptions::new().read(true).write(true).append(true).create(true).
