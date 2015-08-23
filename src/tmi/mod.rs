@@ -13,24 +13,31 @@ impl TmiStream {
         }
     }
 
-    //@todo Make this nonblocking
-    pub fn receive(&self) -> (String, String) {
-        loop {
-            match self.irc_stream.receive_privmsg() {
-                Ok(msg) => {
-                    let nick = match msg.prefix {
-                        Some(prefix) => prefix.servername_nick,
-                        None => format!("poop")
-                    };
-                    let message = match msg.params {
-                        Some(mut params) => params.remove(1),
-                        None => format!("poop")
-                    };
-                    return (nick, message);
-                },
-                Err(_) => ()
-            }
+    // Ok((sender, message))
+    // Err(1): unable to identify sender
+    // Err(2): unable to identify message payload
+    // Err(3): unable to identify message payload
+    // Err(4): unable to receive message
+    pub fn receive(&self) -> Result<(String, String), u8> {
+        match self.irc_stream.receive_privmsg() {
+            Ok(msg) => {
+                let nick = match msg.prefix {
+                    Some(prefix) => prefix.servername_nick,
+                    None => return Err(1)
+                };
+                let message = match msg.params {
+                    Some(mut params) => {
+                        if params.len() < 2 {
+                            params.remove(1)
+                        } else {
+                            return Err(2)
+                        }
+                    },
+                    None => return Err(3)
+                };
+                Ok((nick, message))
+            },
+            Err(_) => Err(4)
         }
     }
 }
-

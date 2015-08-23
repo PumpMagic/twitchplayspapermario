@@ -16,7 +16,7 @@ use std::io::Write;
 
 use regex::Regex;
 
-use time::Duration;
+use time::{Duration, get_time};
 
 use vn64c::ButtonName;
 use demc::DemC;
@@ -29,6 +29,9 @@ const CHAT_LOG_PATH: &'static str = "chat.txt";
 const VJOY_DEVICE_NUMBER: u8 = 1;
 const MAX_JOYSTICK_COMMAND_DURATION: u32 = 5000;
 const MAX_BUTTON_COMMAND_DURATION: u32 = 5000;
+const MAX_B_BUTTON_COMMAND_DURATION: u32 = 30000;
+const MAX_DURATION_PER_LINE: u32 = 30000;
+const MILLISECONDS_PER_FRAME: u32 = 34;
 
 
 // Parse the TPPM toml configuration file; return the server, password, nick, and channel
@@ -81,6 +84,10 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
         // ended
         final_cap_end = cap_end;
 
+        if cumulative_delay > MAX_DURATION_PER_LINE {
+            return None;
+        }
+        
         // Our regex should match on exactly one of three groups: "joystick", "button", or "delay"
         if let Some(_) = cap.name("joystick") {
             match last_command {
@@ -88,7 +95,7 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
                     cumulative_delay += command.duration.num_milliseconds() as u32;
                     match command.command {
                         InputCommand::Joystick{direction: _, strength: _} => {
-                            cumulative_delay += 51;
+                            cumulative_delay += MILLISECONDS_PER_FRAME*2;
                         },
                         InputCommand::Button{name: _, value: _} => {
                             ()
@@ -142,9 +149,9 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
                 return None;
             }
             
-            let time_now = time::get_time();
-            let command = TimedInputCommand { start_time: time_now + time::Duration::milliseconds(cumulative_delay as i64),
-                                                             duration: time::Duration::milliseconds(joystick_duration as i64),
+            let time_now = get_time();
+            let command = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
+                                                             duration: Duration::milliseconds(joystick_duration as i64),
                                                              command: InputCommand::Joystick { direction: joystick_direction,
                                                                                                strength: joystick_strength} };
             res.push(command);
@@ -156,12 +163,12 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
                     match command.command {
                         InputCommand::Joystick{direction: _, strength: _} => {
                             cumulative_delay += command.duration.num_milliseconds() as u32;
-                            if command.duration.num_milliseconds() >= 17 {
-                                cumulative_delay -= 17;
+                            if command.duration.num_milliseconds() >= MILLISECONDS_PER_FRAME as i64 {
+                                cumulative_delay -= MILLISECONDS_PER_FRAME;
                             }
                         },
                         InputCommand::Button{name: _, value: _} => {
-                            if command.duration.num_milliseconds() == 167 {
+                            if command.duration.num_milliseconds() == MILLISECONDS_PER_FRAME as i64 * 5 {
                                 cumulative_delay += 500; //massive hack
                             } else {
                                 cumulative_delay += command.duration.num_milliseconds() as u32;
@@ -177,7 +184,7 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             // "button_duration" (optional),
             // "button_duration_units" (optional; must be present if joystick_duration is)
             let mut button_name;
-            let mut button_duration: u32 = 167;
+            let mut button_duration: u32 = MILLISECONDS_PER_FRAME*5;
             
             if let Some(bncap) = cap.name("button_name") {
                 button_name = match bncap {
@@ -215,14 +222,20 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
                     return None;
                 }
             }
-
-            if button_duration > MAX_BUTTON_COMMAND_DURATION {
-                return None;
+            
+            if cap.name("button_name").unwrap() == "b" {
+                if button_duration > MAX_B_BUTTON_COMMAND_DURATION {
+                    return None;
+                }                
+            } else {
+                if button_duration > MAX_BUTTON_COMMAND_DURATION {
+                    return None;
+                }
             }
             
-            let time_now = time::get_time();
+            let time_now = get_time();
             let command = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
-                                              duration: time::Duration::milliseconds(button_duration as i64),
+                                              duration: Duration::milliseconds(button_duration as i64),
                                               command: InputCommand::Button { name: button_name, value: true } };
             res.push(command);
             
@@ -276,19 +289,23 @@ fn main() {
 
     // Poll the IRC connection and handle its messages forever
     loop {
-        let (sender, message) = tmi_stream.receive();
-        let mut log_string: String;
-        if let Some(cmds) = parse_string_as_commands(&message, &re) {
-            for &cmd in cmds.iter() {
-                controller.add_command(cmd);
-            }
-            log_string = format!("_{}: {}", sender, message)
-        } else {
-            log_string = format!("{}: {}", sender, message)
-        }
+        match tmi_stream.receive() {
+            Ok((sender, message)) => {
+                let mut log_string: String;
+                if let Some(cmds) = parse_string_as_commands(&message, &re) {
+                    for &cmd in cmds.iter() {
+                        controller.add_command(cmd);
+                    }
+                    log_string = format!("_{}: {}", sender, message)
+                } else {
+                    log_string = format!("{}: {}", sender, message)
+                }
 
-        chat_log_file.write_all(&log_string.as_bytes());
-        chat_log_file.write_all("\r\n".as_bytes());
-        chat_log_file.flush();
+                chat_log_file.write_all(&log_string.as_bytes());
+                chat_log_file.write_all("\r\n".as_bytes());
+                chat_log_file.flush();
+            },
+            Err(_) => ()
+        }
     }
 }
