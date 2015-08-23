@@ -28,9 +28,9 @@ impl TmiStream {
                 let message = match msg.params {
                     Some(mut params) => {
                         if params.len() < 2 {
-                            params.remove(1)
-                        } else {
                             return Err(2)
+                        } else {
+                            params.remove(1)
                         }
                     },
                     None => return Err(3)
