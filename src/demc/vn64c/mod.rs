@@ -2,7 +2,8 @@
 #![allow(unused_variables)]
 
 // Dependencies
-mod vjoyinterface;
+mod vjoy_rust;
+
 extern crate std;
 extern crate libc;
 
@@ -124,7 +125,7 @@ impl Controller {
     pub fn new(vjoy_device_number: u8) -> Result<Controller, String> {
         let vjoy_device_number_native = vjoy_device_number as libc::c_uint;
 
-        match get_vjoy_is_enabled() {
+        match vjoy_rust::get_vjoy_is_enabled() {
             Ok(val) => {
                 if val == false {
                     return Err(format!("vJoy isn't enabled. Have you installed vJoy?"));
@@ -140,12 +141,12 @@ impl Controller {
                                            vjoy_device_number, err))
         }
 
-        match claim_vjoystick(vjoy_device_number_native) {
+        match vjoy_rust::claim_vjoystick(vjoy_device_number_native) {
             Err(msg) => return Err(format!("{}", msg)),
             _ => ()
         }
 
-        match reset_vjoystick(vjoy_device_number_native) {
+        match vjoy_rust::reset_vjoystick(vjoy_device_number_native) {
             Err(msg) => return Err(format!("{}", msg)),
             _ => ()
         }
@@ -163,19 +164,19 @@ impl Controller {
         controller.props.vjoy_device_number = vjoy_device_number;
 
         // Get and capture vjoystick min and max
-        match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_X) {
+        match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_X) {
             Ok(min) => controller.props.x_min = min,
             Err(msg) => return Err(msg)
         }
-        match get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_X) {
+        match vjoy_rust::get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_X) {
             Ok(max) => controller.props.x_max = max,
             Err(msg) => return Err(msg)
         }
-        match get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
+        match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
             Ok(min) => controller.props.y_min = min,
             Err(msg) => return Err(msg)
         }
-        match get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_Y) {
+        match vjoy_rust::get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_Y) {
             Ok(max) => controller.props.y_max = max,
             Err(msg) => return Err(msg)
         }
@@ -216,13 +217,13 @@ impl Controller {
         let x = x_mid + (x_strength * (x_mid as f32)) as libc::c_long;
         let y = y_mid + (y_strength * (y_mid as f32)) as libc::c_long;
 
-        match set_vjoystick_axis(self.props.vjoy_device_number, HID_JOYSTICK_X, x) {
+        match vjoy_rust::set_vjoystick_axis(self.props.vjoy_device_number, HID_JOYSTICK_X, x) {
             Ok(_) => (),
             Err(_) => return Err("Unable to set X axis")
         }
         //self.state.x = x;
 
-        match set_vjoystick_axis(self.props.vjoy_device_number, HID_JOYSTICK_Y, y) {
+        match vjoy_rust::set_vjoystick_axis(self.props.vjoy_device_number, HID_JOYSTICK_Y, y) {
             Ok(_) => (),
             Err(_) => return Err("Unable to set Y axis")
         }
@@ -234,7 +235,7 @@ impl Controller {
     fn change_button(&self, name: ButtonName, value: bool) -> Result<(), &'static str> {
         let valc = value as libc::c_int;
 
-        match set_vjoystick_button(self.props.vjoy_device_number, name.get_vjoy_button_index(), valc) {
+        match vjoy_rust::set_vjoystick_button(self.props.vjoy_device_number, name.get_vjoy_button_index(), valc) {
             Ok(_) => (),
             Err(_) => return Err("Unable to set virtual joystick button")
         }
@@ -268,128 +269,10 @@ impl Controller {
     }
 }
 
-// vJoy wrapper functions
-fn get_vjoy_is_enabled() -> Result<bool, ()> {
-    unsafe {
-        let vjoy_enabled = vjoyinterface::vJoyEnabled();
-        if vjoy_enabled == 0 {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
-    }
-}
-
-fn get_vjoystick_axis_exists(index: libc::c_uint, axis: libc::c_uint) -> Result<bool, ()> {
-    unsafe {
-        let axis_exists = vjoyinterface::GetVJDAxisExist(index, axis);
-        if axis_exists == 0 {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
-    }
-}
-
-fn get_vjoystick_axis_min(index: libc::c_uint, axis: libc::c_uint) -> Result<libc::c_long, &'static str> {
-    unsafe {
-        let mut min: libc::c_long = 0;
-        let min_raw_pointer = &mut min as *mut libc::c_long;
-        let min_result = vjoyinterface::GetVJDAxisMin(index, axis, min_raw_pointer);
-        if min_result == 0 {
-            Err("Unable to get axis minimum")
-        } else {
-            Ok(min)
-        }
-    }
-}
-
-fn get_vjoystick_axis_max(index: libc::c_uint, axis: libc::c_uint) -> Result<libc::c_long, &'static str> {
-    unsafe {
-        let mut max: libc::c_long = 0;
-        let max_raw_pointer = &mut max as *mut libc::c_long;
-        let max_result = vjoyinterface::GetVJDAxisMax(index, axis, max_raw_pointer);
-        if max_result == 0 {
-            Err("Unable to get axis maximum: does the axis exist?")
-        } else {
-            Ok(max)
-        }
-    }
-}
-
-fn get_vjoystick_button_count(index: libc::c_uint) -> Result<u8, ()> {
-    unsafe {
-        let num_buttons = vjoyinterface::GetVJDButtonNumber(index);
-
-        Ok(num_buttons as u8)
-    }
-}
-
-fn get_vjoystick_status(index: libc::c_uint) -> vjoyinterface::Enum_VjdStat {
-    unsafe {
-        let joystick_status = vjoyinterface::GetVJDStatus(index);
-
-        joystick_status
-    }
-}
-
-fn claim_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
-    unsafe {
-        let joystick_status = get_vjoystick_status(index);
-        if joystick_status == vjoyinterface::VJD_STAT_FREE {
-            // Try to claim it
-            let acquire_vjd_result = vjoyinterface::AcquireVJD(index);
-            if acquire_vjd_result == 0 {
-                return Err("Virtual joystick is available, but unable to acquire it");
-            } else {
-                return Ok(());
-            }
-        } else if joystick_status == vjoyinterface::VJD_STAT_OWN {
-            // We've already claimed it
-            return Ok(());
-        }
-    }
-
-    Err("Virtual joystick is owned by someone else, missing, or in unknown state")
-}
-
-fn reset_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
-    unsafe {
-        let reset_result = vjoyinterface::ResetVJD(index);
-        if reset_result == 0 {
-            return Err("vJoy reset function returned failure");
-        }
-    }
-
-    Ok(())
-}
-
-fn set_vjoystick_axis(index: libc::c_uint, axis: libc::c_uint, value: libc::c_long) -> Result<(), ()> {
-    unsafe {
-        let set_x_result = vjoyinterface::SetAxis(value, index, axis);
-        if set_x_result == 0 {
-            return Err(());
-        }
-    }
-
-    Ok(())
-}
-
-fn set_vjoystick_button(index: libc::c_uint, button: libc::c_uchar, value: libc::c_int) -> Result<(), ()> {
-    unsafe {
-        let set_result = vjoyinterface::SetBtn(value, index, button);
-        if set_result == 0 {
-            return Err(());
-        }
-    }
-
-    Ok(())
-}
-
 // Verify that a vJoy device has the controls we need to treat it like an N64 controller
 // If this fails, the vJoy device should be configured manually using vJoy's supplied configuration tool
 fn verify_vjoystick_as_n64(index: libc::c_uint) -> Result<(), String> {
-    match get_vjoystick_axis_exists(index, HID_JOYSTICK_X) {
+    match vjoy_rust::get_vjoystick_axis_exists(index, HID_JOYSTICK_X) {
         Ok(exists) => {
             if exists == false {
                 return Err(format!("No X axis"));
@@ -398,7 +281,7 @@ fn verify_vjoystick_as_n64(index: libc::c_uint) -> Result<(), String> {
         Err(()) => return Err(format!("Unable to check for X axis"))
     }
 
-    match get_vjoystick_axis_exists(index, HID_JOYSTICK_Y) {
+    match vjoy_rust::get_vjoystick_axis_exists(index, HID_JOYSTICK_Y) {
         Ok(exists) => {
             if exists == false {
                 return Err(format!("No Y axis"));
@@ -407,7 +290,7 @@ fn verify_vjoystick_as_n64(index: libc::c_uint) -> Result<(), String> {
         Err(()) => return Err(format!("Unable to check for Y axis"))
     }
 
-    match get_vjoystick_button_count(index) {
+    match vjoy_rust::get_vjoystick_button_count(index) {
         Ok(buttons) => {
             if buttons < NUM_N64_BUTTONS {
                 return Err(format!("Less than {} buttons", NUM_N64_BUTTONS));
