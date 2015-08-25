@@ -5,92 +5,77 @@
 mod vjoy_rust;
 
 extern crate std;
-extern crate libc;
 
-// Control constants - what magic numbers do we need to play with each virtual device input?
-// USB HID joystick constants. We assume our emulator is configured to map virtual joystick to N64 joystick
-const HID_JOYSTICK_X: libc::c_uint = 0x30;
-const HID_JOYSTICK_Y: libc::c_uint = 0x31;
 
-// Number of digital inputs on a standard N64 controller
-pub const NUM_N64_BUTTONS: u8 = 14;
-
-// Enumeration of digital inputs on an N64 controller
-#[derive(Debug, Clone, Copy)]
-pub enum ButtonName {
-    A,
-    B,
-    Z,
-    L,
-    R,
-    Start,
-    Cup,
-    Cdown,
-    Cleft,
-    Cright,
-    Dup,
-    Ddown,
-    Dleft,
-    Dright
+struct ControllerHardware {
+    axes: HashMap<String, u32>,
+    buttons: HashMap<String, u32>
 }
 
-impl ButtonName {
-    // Emulator button bindings - what emulator button each virtual joystick button is connected to
-    // Note that vJoy button indices are one-based
-    fn get_vjoy_button_index(&self) -> libc::c_uchar {
-        match *self {
-            ButtonName::A => 0x01,
-            ButtonName::B => 0x02,
-            ButtonName::Z => 0x03,
-            ButtonName::L => 0x04,
-            ButtonName::R => 0x05,
-            ButtonName::Start => 0x06,
-            ButtonName::Cup => 0x07,
-            ButtonName::Cdown => 0x08,
-            ButtonName::Cleft => 0x09,
-            ButtonName::Cright => 0x0a,
-            ButtonName::Dup => 0x0b,
-            ButtonName::Ddown => 0x0c,
-            ButtonName::Dleft => 0x0d,
-            ButtonName::Dright => 0x0e
-        }
-    }
+pub fn get_n64_controller_hardware() -> ControllerHardware {
+    let mut axes = HashMap::new();
+    axes.insert("x", 0x30); // USB HID
+    axes.insert("y", 0x31); // USB HID
+
+    let mut buttons = HashMap::new();
+    buttons.insert("a", 0x01);
+    buttons.insert("b", 0x02);
+    buttons.insert("z", 0x03);
+    buttons.insert("l", 0x04);
+    buttons.insert("r", 0x05);
+    buttons.insert("start", 0x06);
+    buttons.insert("cup", 0x07);
+    buttons.insert("cdown", 0x08);
+    buttons.insert("cleft", 0x09);
+    buttons.insert("cright", 0x0a);
+    buttons.insert("dup", 0x0b);
+    buttons.insert("ddown", 0x0c);
+    buttons.insert("dleft", 0x0d);
+    buttons.insert("dright", 0x0e);
+
+    ControllerHardware { axes: axes, buttons: buttons }
+}
+
+pub fn get_gcn_controller_hardware() -> ControllerHardware {
+    let mut axes = HashMap::new();
+    axes.insert("jx", 0x30); // USB HID
+    axes.insert("jy", 0x31); // USB HID
+    axes.insert("cx", 0x32); // USB HID???
+    axes.insert("cy", 0x33); // USB HID???
+
+    let mut buttons = HashMap::new();
+    buttons.insert("a", 0x01);
+    buttons.insert("b", 0x02);
+    buttons.insert("x", 0x03);
+    buttons.insert("y", 0x04);
+    buttons.insert("z", 0x05);
+    buttons.insert("l", 0x06);
+    buttons.insert("r", 0x07);
+    buttons.insert("dup", 0x08);
+    buttons.insert("ddown", 0x09);
+    buttons.insert("dleft", 0x0a);
+    buttons.insert("dright", 0x0b);
+
+    ControllerHardware { axes: axes, buttons: buttons }
 }
 
 // Properties (non-input-state characteristics) about a virtual N64 controller
 // Post-initialization, this should all be read-only
-#[derive(Default)]
 struct Props {
-    vjoy_device_number: libc::c_uint,
-    
-    x_min: libc::c_long,
-    x_max: libc::c_long,
-    y_min: libc::c_long,
-    y_max: libc::c_long,
+    vjoy_device_number: u32,
+
+    hardware: ControllerHardware,
+
+    axis_mins: HashMap<u32, i64>,
+    axis_maxes: HashMap<u32, i64>,
 }
 
 // Comprehensive status of a virtual N64 controller's inputs
-#[derive(Default)]
 struct State {
-    x: libc::c_long,
-    y: libc::c_long,
-    a: libc::c_int,
-    b: libc::c_int,
-    z: libc::c_int,
-    l: libc::c_int,
-    r: libc::c_int,
-    start: libc::c_int,
-    cup: libc::c_int,
-    cdown: libc::c_int,
-    cleft: libc::c_int,
-    cright: libc::c_int,
-    dup: libc::c_int,
-    ddown: libc::c_int,
-    dleft: libc::c_int,
-    dright: libc::c_int,
+    axes: HashMap<u32, i64>,
+    buttons: HashMap<u32, i32>
 }
 
-#[derive(Default)]
 pub struct Controller {
     props: Props,
     state: State
@@ -99,12 +84,15 @@ pub struct Controller {
 #[derive(Clone, Copy)]
 pub enum InputCommand {
     // direction is in degrees - strength is a number between 0 and 1
-    Joystick { direction: u16, strength: f32 },
-    Button { name: ButtonName, value: bool }
+    //@todo this module shouldn't be the one converting between direction+str and x+y
+    //Joystick { direction: u16, strength: f32 },
+    Axis { index: u32, value: i64 },
+    Button { index: u32, value: bool }
 }
 
 impl InputCommand {
-    fn is_valid(&self) -> bool {
+    //@todo actually do something, once this module doesn't convert from dir+strength
+    fn is_compatible_with(&self, ch: &ControllerHardware) -> bool {
         match *self {
             InputCommand::Joystick { direction, strength } => {
                 if direction > 359 {
@@ -122,8 +110,8 @@ impl InputCommand {
 impl Controller {
     // Verify that a vJoy device can act as a virtual N64 controller, and if so, return a virtual
     // N64 controller
-    pub fn new(vjoy_device_number: u8) -> Result<Controller, String> {
-        let vjoy_device_number_native = vjoy_device_number as libc::c_uint;
+    pub fn new(vjoy_device_number: u32, hardware: ControllerHardware) -> Result<Controller, String> {
+        let vjoy_device_number_native = vjoy_device_number;
 
         match vjoy_rust::get_vjoy_is_enabled() {
             Ok(val) => {
@@ -134,7 +122,7 @@ impl Controller {
             Err(err) => return Err(format!("Unable to check if vJoy is enabled. Have you installed vJoy?"))
         }
 
-        match verify_vjoystick_as_n64(vjoy_device_number_native) {
+        match verify_vjoystick_hardware(vjoy_device_number_native, &hardware) {
             Ok(()) => (),
             Err(err) => return Err(format!("Virtual joystick {} can't act as an N64 controller: {}.\
                                             You may need to reconfigure your vJoy device",
@@ -151,41 +139,48 @@ impl Controller {
             _ => ()
         }
 
-        match Controller::from_vjoy_device_number(vjoy_device_number_native) {
+        match Controller::from_hardware(vjoy_device_number_native, hardware) {
             Err(msg) => Err(format!("{}", msg)),
             Ok(controller) => Ok(controller)
         }
     }
 
     // Make and initialize a virtual N64 controller struct given the device number
-    fn from_vjoy_device_number(vjoy_device_number: libc::c_uint) -> Result<Controller, &'static str> {
-        let mut controller = Controller { ..Default::default() };
+    fn from_hardware(vjoy_device_number: u32, hardware: ControllerHardware) -> Result<Controller, &'static str> {
+        let mut props = Props {
+            vjoy_device_number: vjoy_device_number,
 
-        controller.props.vjoy_device_number = vjoy_device_number;
+            hardware: hardware,
 
-        // Get and capture vjoystick min and max
-        match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_X) {
-            Ok(min) => controller.props.x_min = min,
-            Err(msg) => return Err(msg)
-        }
-        match vjoy_rust::get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_X) {
-            Ok(max) => controller.props.x_max = max,
-            Err(msg) => return Err(msg)
-        }
-        match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, HID_JOYSTICK_Y) {
-            Ok(min) => controller.props.y_min = min,
-            Err(msg) => return Err(msg)
-        }
-        match vjoy_rust::get_vjoystick_axis_max(vjoy_device_number, HID_JOYSTICK_Y) {
-            Ok(max) => controller.props.y_max = max,
-            Err(msg) => return Err(msg)
+            axis_mins: HashMap::new(),
+            axis_maxes: HashMap::new()
+        };
+        let mut state = State {
+            axes: HashMap::new(),
+            buttons: HashMap::new()
+        };
+
+        // Get and capture vjoystick min and max; set joystick values to neutral
+        for (_, hid) in props.hardware.axes.iter() {
+            let min = match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, hid) {
+                Ok(min) => min,
+                Err(msg) => return Err(msg)
+            };
+            let max = match vjoy_rust::get_vjoystick_axis_max(vjoy_device_number, hid) {
+                Ok(max) => max,
+                Err(msg) => return Err(msg)
+            };
+
+            props.axis_mins.insert(hid, min);
+            props.axis_maxes.insert(hid, max);
+            state.axes.insert(hid, (max-min)/2);
         }
 
-        // Set joystick values to neutral
-        controller.state.x = (controller.props.x_max - controller.props.x_min) / 2;
-        controller.state.y = (controller.props.y_max - controller.props.y_min) / 2;
+        for (_, index) in props.hardware.buttons.iter() {
+            state.buttons.insert(index, 0);
+        }
 
-        Ok(controller)
+        Ok(Controller { props: props, state: state })
     }
     
     pub fn change_input(&self, command: &InputCommand) -> Result<(), &'static str> {
@@ -211,11 +206,11 @@ impl Controller {
         let x_strength = direction_rad.cos() * strength;
         let y_strength = direction_rad.sin() * strength;
 
-        let x_mid: libc::c_long = ((self.props.x_max - self.props.x_min)/2) as libc::c_long;
-        let y_mid: libc::c_long = ((self.props.y_max - self.props.y_min)/2) as libc::c_long;
+        let x_mid: i64 = ((self.props.x_max - self.props.x_min)/2) as i64;
+        let y_mid: i64 = ((self.props.y_max - self.props.y_min)/2) as i64;
 
-        let x = x_mid + (x_strength * (x_mid as f32)) as libc::c_long;
-        let y = y_mid + (y_strength * (y_mid as f32)) as libc::c_long;
+        let x = x_mid + (x_strength * (x_mid as f32)) as i64;
+        let y = y_mid + (y_strength * (y_mid as f32)) as i64;
 
         match vjoy_rust::set_vjoystick_axis(self.props.vjoy_device_number, HID_JOYSTICK_X, x) {
             Ok(_) => (),
@@ -233,7 +228,7 @@ impl Controller {
     }
     
     fn change_button(&self, name: ButtonName, value: bool) -> Result<(), &'static str> {
-        let valc = value as libc::c_int;
+        let valc = value as i32;
 
         match vjoy_rust::set_vjoystick_button(self.props.vjoy_device_number, name.get_vjoy_button_index(), valc) {
             Ok(_) => (),
@@ -269,9 +264,9 @@ impl Controller {
     }
 }
 
-// Verify that a vJoy device has the controls we need to treat it like an N64 controller
-// If this fails, the vJoy device should be configured manually using vJoy's supplied configuration tool
-fn verify_vjoystick_as_n64(index: libc::c_uint) -> Result<(), String> {
+
+//@todo implement
+fn verify_vjoystick_hardware(index: u32, hardware: &ControllerHardware) -> Result<(), String> {
     match vjoy_rust::get_vjoystick_axis_exists(index, HID_JOYSTICK_X) {
         Ok(exists) => {
             if exists == false {
@@ -292,8 +287,8 @@ fn verify_vjoystick_as_n64(index: libc::c_uint) -> Result<(), String> {
 
     match vjoy_rust::get_vjoystick_button_count(index) {
         Ok(buttons) => {
-            if buttons < NUM_N64_BUTTONS {
-                return Err(format!("Less than {} buttons", NUM_N64_BUTTONS));
+            if buttons < 14 {
+                return Err(format!("Less than {} buttons", 14));
             }
         },
         Err(()) => return Err(format!("Unable to get button count"))

@@ -10,24 +10,24 @@ use time::{Timespec, Duration};
 pub mod vn64c;
 
 
-fn get_button_guard_index(name: &vn64c::ButtonName) -> usize {
+fn get_button_guard_index(name: &String) -> usize {
     // Zero-based indexing of enum values
     //@todo this really shouldn't be necessary
-    match *name {
-        vn64c::ButtonName::A => 0,
-        vn64c::ButtonName::B => 1,
-        vn64c::ButtonName::Z => 2,
-        vn64c::ButtonName::L => 3,
-        vn64c::ButtonName::R => 4,
-        vn64c::ButtonName::Start => 5,
-        vn64c::ButtonName::Cup => 6,
-        vn64c::ButtonName::Cdown => 7,
-        vn64c::ButtonName::Cleft => 8,
-        vn64c::ButtonName::Cright => 9,
-        vn64c::ButtonName::Dup => 10,
-        vn64c::ButtonName::Ddown => 11,
-        vn64c::ButtonName::Dleft => 12,
-        vn64c::ButtonName::Dright => 13
+    match name {
+        "a" => 0,
+        "b" => 1,
+        "z" => 2,
+        "l" => 3,
+        "r" => 4,
+        "start" => 5,
+        "cup" => 6,
+        "cdown" => 7,
+        "cleft" => 8,
+        "cright" => 9,
+        "dup" => 10,
+        "ddown" => 11,
+        "dleft" => 12,
+        "dright" => 13
     }
 }
 
@@ -47,8 +47,8 @@ pub struct DemC {
 }
 
 impl DemC {
-    pub fn new(vjoy_device_number: u8) -> Result<DemC, u8> {
-        let controller_result = vn64c::Controller::new(vjoy_device_number);
+    pub fn new_n64(vjoy_device_number: u8) -> Result<DemC, u8> {
+        let controller_result = vn64c::Controller::new(vjoy_device_number, vn64c::get_n64_controller_hardware());
         let controller = match controller_result {
             Ok(controller) => controller,
             Err(_) => return Err(1)

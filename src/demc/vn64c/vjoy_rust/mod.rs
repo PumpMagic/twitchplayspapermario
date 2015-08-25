@@ -17,7 +17,7 @@ pub fn get_vjoy_is_enabled() -> Result<bool, ()> {
     }
 }
 
-pub fn get_vjoystick_axis_exists(index: libc::c_uint, axis: libc::c_uint) -> Result<bool, ()> {
+pub fn get_vjoystick_axis_exists(index: u32, axis: u32) -> Result<bool, ()> {
     unsafe {
         let axis_exists = vjoyinterface::GetVJDAxisExist(index, axis);
         if axis_exists == 0 {
@@ -28,7 +28,7 @@ pub fn get_vjoystick_axis_exists(index: libc::c_uint, axis: libc::c_uint) -> Res
     }
 }
 
-pub fn get_vjoystick_axis_min(index: libc::c_uint, axis: libc::c_uint) -> Result<libc::c_long, &'static str> {
+pub fn get_vjoystick_axis_min(index: u32, axis: u32) -> Result<i64, &'static str> {
     unsafe {
         let mut min: libc::c_long = 0;
         let min_raw_pointer = &mut min as *mut libc::c_long;
@@ -41,7 +41,7 @@ pub fn get_vjoystick_axis_min(index: libc::c_uint, axis: libc::c_uint) -> Result
     }
 }
 
-pub fn get_vjoystick_axis_max(index: libc::c_uint, axis: libc::c_uint) -> Result<libc::c_long, &'static str> {
+pub fn get_vjoystick_axis_max(index: u32, axis: u32) -> Result<i64, &'static str> {
     unsafe {
         let mut max: libc::c_long = 0;
         let max_raw_pointer = &mut max as *mut libc::c_long;
@@ -54,7 +54,7 @@ pub fn get_vjoystick_axis_max(index: libc::c_uint, axis: libc::c_uint) -> Result
     }
 }
 
-pub fn get_vjoystick_button_count(index: libc::c_uint) -> Result<u8, ()> {
+pub fn get_vjoystick_button_count(index: u32) -> Result<u8, ()> {
     unsafe {
         let num_buttons = vjoyinterface::GetVJDButtonNumber(index);
 
@@ -62,7 +62,7 @@ pub fn get_vjoystick_button_count(index: libc::c_uint) -> Result<u8, ()> {
     }
 }
 
-pub fn get_vjoystick_status(index: libc::c_uint) -> vjoyinterface::Enum_VjdStat {
+pub fn get_vjoystick_status(index: u32) -> vjoyinterface::Enum_VjdStat {
     unsafe {
         let joystick_status = vjoyinterface::GetVJDStatus(index);
 
@@ -70,7 +70,7 @@ pub fn get_vjoystick_status(index: libc::c_uint) -> vjoyinterface::Enum_VjdStat 
     }
 }
 
-pub fn reset_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
+pub fn reset_vjoystick(index: u32) -> Result<(), &'static str> {
     unsafe {
         let reset_result = vjoyinterface::ResetVJD(index);
         if reset_result == 0 {
@@ -81,7 +81,7 @@ pub fn reset_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
     Ok(())
 }
 
-pub fn set_vjoystick_axis(index: libc::c_uint, axis: libc::c_uint, value: libc::c_long) -> Result<(), ()> {
+pub fn set_vjoystick_axis(index: u32, axis: u32, value: i64) -> Result<(), ()> {
     unsafe {
         let set_x_result = vjoyinterface::SetAxis(value, index, axis);
         if set_x_result == 0 {
@@ -92,7 +92,7 @@ pub fn set_vjoystick_axis(index: libc::c_uint, axis: libc::c_uint, value: libc::
     Ok(())
 }
 
-pub fn set_vjoystick_button(index: libc::c_uint, button: libc::c_uchar, value: libc::c_int) -> Result<(), ()> {
+pub fn set_vjoystick_button(index: u32, button: u8, value: i32) -> Result<(), ()> {
     unsafe {
         let set_result = vjoyinterface::SetBtn(value, index, button);
         if set_result == 0 {
@@ -106,7 +106,7 @@ pub fn set_vjoystick_button(index: libc::c_uint, button: libc::c_uchar, value: l
 
 // Convenience functions
 
-pub fn claim_vjoystick(index: libc::c_uint) -> Result<(), &'static str> {
+pub fn claim_vjoystick(index: u32) -> Result<(), &'static str> {
     unsafe {
         let joystick_status = get_vjoystick_status(index);
         if joystick_status == vjoyinterface::VJD_STAT_FREE {
