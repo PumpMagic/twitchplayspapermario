@@ -1,7 +1,6 @@
 #![allow(unused_must_use)]
 
 mod tmi;
-mod vn64c;
 mod demc;
 
 extern crate regex;
@@ -18,10 +17,8 @@ use regex::Regex;
 
 use time::{Duration, get_time};
 
-use vn64c::ButtonName;
 use demc::DemC;
 use demc::TimedInputCommand;
-use vn64c::InputCommand;
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
@@ -90,10 +87,10 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
                 Some(command) => {
                     cumulative_delay += command.duration.num_milliseconds() as u32;
                     match command.command {
-                        InputCommand::Joystick{direction: _, strength: _} => {
+                        demc::vn64c::InputCommand::Joystick{direction: _, strength: _} => {
                             cumulative_delay += MILLISECONDS_PER_FRAME*2;
                         },
-                        InputCommand::Button{name: _, value: _} => {
+                        demc::vn64c::InputCommand::Button{name: _, value: _} => {
                             ()
                         }
                     }
@@ -148,7 +145,7 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             let time_now = get_time();
             let command = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
                                                              duration: Duration::milliseconds(joystick_duration as i64),
-                                                             command: InputCommand::Joystick { direction: joystick_direction,
+                                                             command: demc::vn64c::InputCommand::Joystick { direction: joystick_direction,
                                                                                                strength: joystick_strength} };
             res.push(command);
             
@@ -157,13 +154,13 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             match last_command {
                 Some(command) => {
                     match command.command {
-                        InputCommand::Joystick{direction: _, strength: _} => {
+                        demc::vn64c::InputCommand::Joystick{direction: _, strength: _} => {
                             cumulative_delay += command.duration.num_milliseconds() as u32;
                             if command.duration.num_milliseconds() >= MILLISECONDS_PER_FRAME as i64 {
                                 cumulative_delay -= MILLISECONDS_PER_FRAME;
                             }
                         },
-                        InputCommand::Button{name: _, value: _} => {
+                        demc::vn64c::InputCommand::Button{name: _, value: _} => {
                             if command.duration.num_milliseconds() == MILLISECONDS_PER_FRAME as i64 * 5 {
                                 cumulative_delay += 500; //massive hack
                             } else {
@@ -184,20 +181,20 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             
             if let Some(bncap) = cap.name("button_name") {
                 button_name = match bncap {
-                    "a" => ButtonName::A,
-                    "b" => ButtonName::B,
-                    "z" => ButtonName::Z,
-                    "l" => ButtonName::L,
-                    "r" => ButtonName::R,
-                    "start" => ButtonName::Start,
-                    "cup" => ButtonName::Cup,
-                    "cdown" => ButtonName::Cdown,
-                    "cleft" => ButtonName::Cleft,
-                    "cright" => ButtonName::Cright,
-                    "dup" => ButtonName::Dup,
-                    "ddown" => ButtonName::Ddown,
-                    "dleft" => ButtonName::Dleft,
-                    "dright" => ButtonName::Dright,
+                    "a" => demc::vn64c::ButtonName::A,
+                    "b" => demc::vn64c::ButtonName::B,
+                    "z" => demc::vn64c::ButtonName::Z,
+                    "l" => demc::vn64c::ButtonName::L,
+                    "r" => demc::vn64c::ButtonName::R,
+                    "start" => demc::vn64c::ButtonName::Start,
+                    "cup" => demc::vn64c::ButtonName::Cup,
+                    "cdown" => demc::vn64c::ButtonName::Cdown,
+                    "cleft" => demc::vn64c::ButtonName::Cleft,
+                    "cright" => demc::vn64c::ButtonName::Cright,
+                    "dup" => demc::vn64c::ButtonName::Dup,
+                    "ddown" => demc::vn64c::ButtonName::Ddown,
+                    "dleft" => demc::vn64c::ButtonName::Dleft,
+                    "dright" => demc::vn64c::ButtonName::Dright,
                     _ => return None
                 };
             } else {
@@ -232,7 +229,7 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             let time_now = get_time();
             let command = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
                                               duration: Duration::milliseconds(button_duration as i64),
-                                              command: InputCommand::Button { name: button_name, value: true } };
+                                              command: demc::vn64c::InputCommand::Button { name: button_name, value: true } };
             res.push(command);
             
             last_command = Some(command.clone());

@@ -7,27 +7,27 @@ use std::f32::consts::PI;
 use time;
 use time::{Timespec, Duration};
 
-use vn64c::{Controller, ButtonName, InputCommand};
+pub mod vn64c;
 
 
-fn get_button_guard_index(name: &ButtonName) -> usize {
+fn get_button_guard_index(name: &vn64c::ButtonName) -> usize {
     // Zero-based indexing of enum values
     //@todo this really shouldn't be necessary
     match *name {
-        ButtonName::A => 0,
-        ButtonName::B => 1,
-        ButtonName::Z => 2,
-        ButtonName::L => 3,
-        ButtonName::R => 4,
-        ButtonName::Start => 5,
-        ButtonName::Cup => 6,
-        ButtonName::Cdown => 7,
-        ButtonName::Cleft => 8,
-        ButtonName::Cright => 9,
-        ButtonName::Dup => 10,
-        ButtonName::Ddown => 11,
-        ButtonName::Dleft => 12,
-        ButtonName::Dright => 13
+        vn64c::ButtonName::A => 0,
+        vn64c::ButtonName::B => 1,
+        vn64c::ButtonName::Z => 2,
+        vn64c::ButtonName::L => 3,
+        vn64c::ButtonName::R => 4,
+        vn64c::ButtonName::Start => 5,
+        vn64c::ButtonName::Cup => 6,
+        vn64c::ButtonName::Cdown => 7,
+        vn64c::ButtonName::Cleft => 8,
+        vn64c::ButtonName::Cright => 9,
+        vn64c::ButtonName::Dup => 10,
+        vn64c::ButtonName::Ddown => 11,
+        vn64c::ButtonName::Dleft => 12,
+        vn64c::ButtonName::Dright => 13
     }
 }
 
@@ -35,12 +35,12 @@ fn get_button_guard_index(name: &ButtonName) -> usize {
 pub struct TimedInputCommand {
     pub start_time: Timespec,
     pub duration: Duration,
-    pub command: InputCommand
+    pub command: vn64c::InputCommand
 }
 
 // A democratized virtual N64 controller
 pub struct DemC {
-    controller: Arc<Controller>,
+    controller: Arc<vn64c::Controller>,
     
     tx_command: mpsc::Sender<TimedInputCommand>,
     command_listener: thread::JoinHandle<()>
@@ -48,7 +48,7 @@ pub struct DemC {
 
 impl DemC {
     pub fn new(vjoy_device_number: u8) -> Result<DemC, u8> {
-        let controller_result = Controller::new(vjoy_device_number);
+        let controller_result = vn64c::Controller::new(vjoy_device_number);
         let controller = match controller_result {
             Ok(controller) => controller,
             Err(_) => return Err(1)
@@ -90,10 +90,10 @@ impl DemC {
                 for &command in queued_commands.iter() {
                     if command.start_time <= time_now {
                         match command.command {
-                            InputCommand::Joystick{direction: _, strength: _} => {
+                            vn64c::InputCommand::Joystick{direction: _, strength: _} => {
                                 active_joystick_commands.push(command);
                             }
-                            InputCommand::Button{name, value: _} => {
+                            vn64c::InputCommand::Button{name, value: _} => {
                                 // Is a button in a press-release cycle? If so, ignore vote
                                 // Otherwise, hold the button for as long as the command specified,
                                 // then release it indefinitely but for at least 0.0498 seconds
@@ -105,10 +105,10 @@ impl DemC {
                                         let closure_controller = arc_controller_command_handler.clone();
                                         let closure_button_name = name.clone();
                                         thread::spawn(move || {
-                                            let command1 = InputCommand::Button { name: closure_button_name, value: true };
+                                            let command1 = vn64c::InputCommand::Button { name: closure_button_name, value: true };
                                             closure_controller.change_input(&command1);
                                             thread::sleep_ms(command.duration.num_milliseconds() as u32);
-                                            let command2 = InputCommand::Button { name: closure_button_name, value: false };
+                                            let command2 = vn64c::InputCommand::Button { name: closure_button_name, value: false };
                                             closure_controller.change_input(&command2);
                                             thread::sleep_ms(34);
                                         });
@@ -142,7 +142,7 @@ impl DemC {
                     // Loop over all commands
                     for &command in active_joystick_commands.iter() {
                         match command.command {
-                            InputCommand::Joystick{direction, strength} => {
+                            vn64c::InputCommand::Joystick{direction, strength} => {
                                 let direction_rad: f32 = (direction as f32) * PI / 180.0;
                         
                                 if (direction_rad.cos() * strength).abs() > 0.0000001 {
@@ -171,10 +171,10 @@ impl DemC {
                     }
                     let strength_avg = (x_avg*x_avg + y_avg*y_avg).sqrt();
                     
-                    let command = InputCommand::Joystick { direction: direction_avg_deg as u16, strength: strength_avg };
+                    let command = vn64c::InputCommand::Joystick { direction: direction_avg_deg as u16, strength: strength_avg };
                     arc_controller_command_handler.change_input(&command);
                 } else {
-                    let command = InputCommand::Joystick { direction: 0, strength: 0.0 };
+                    let command = vn64c::InputCommand::Joystick { direction: 0, strength: 0.0 };
                     arc_controller_command_handler.change_input(&command);
                 }
                 
