@@ -211,19 +211,19 @@ impl Controller {
         }
     }
     
-    pub fn change_joystick(&self, name: &String, strength: f32) -> Result<(), &'static str> {
+    fn change_joystick(&self, name: &String, strength: f32) -> Result<(), &'static str> {
         let hid = self.props.hardware.get_axis_hid(name).unwrap();
 
         let mid: i64 = ((self.props.axis_maxes.get(&hid).unwrap() - self.props.axis_mins.get(&hid).unwrap())/2) as i64;
         let val = mid + (strength * (mid as f32)) as i64;
-
+        
         match vjoy_rust::set_vjoystick_axis(self.props.vjoy_device_number, hid, val) {
             Ok(_) => Ok(()),
             Err(_) => Err("Unable to set axis")
         }
     }
     
-    pub fn change_button(&self, name: &String, value: bool) -> Result<(), &'static str> {
+    fn change_button(&self, name: &String, value: bool) -> Result<(), &'static str> {
         let index = self.props.hardware.get_button_index(name).unwrap();
 
         let valc = value as i32;

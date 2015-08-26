@@ -91,7 +91,7 @@ impl DemC {
                     if command.start_time <= time_now {
                         match command.command.clone() {
                             vn64c::Input::Axis(_, _) => {
-                                //active_joystick_commands.push(command.clone());
+                                active_joystick_commands.push(command.clone());
                             }
                             vn64c::Input::Button(name, _) => {
                                 // Is a button in a press-release cycle? If so, ignore vote
@@ -170,8 +170,8 @@ impl DemC {
                     arc_controller_command_handler.change_input(&x_command);
                     arc_controller_command_handler.change_input(&y_command);
                 } else {
-                    let x_command = vn64c::Input::Axis(String::from("x"), 0.5);
-                    let y_command = vn64c::Input::Axis(String::from("y"), 0.5);
+                    let x_command = vn64c::Input::Axis(String::from("x"), 0.0);
+                    let y_command = vn64c::Input::Axis(String::from("y"), 0.0);
                     arc_controller_command_handler.change_input(&x_command);
                     arc_controller_command_handler.change_input(&y_command);
                 }
