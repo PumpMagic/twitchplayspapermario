@@ -277,7 +277,7 @@ fn main() {
     
     // Initialize a democratized virtual N64 controller
     let controller = DemC::new_n64(VJOY_DEVICE_NUMBER).unwrap();
-    
+
     // Start our IRC connection
     let tmi_stream = tmi::TmiStream::establish(server, pass, nick, channel).unwrap();
     

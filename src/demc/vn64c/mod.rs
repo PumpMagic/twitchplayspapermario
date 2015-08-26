@@ -57,10 +57,10 @@ pub fn get_n64_controller_hardware() -> ControllerHardware {
 
 pub fn get_gcn_controller_hardware() -> ControllerHardware {
     let mut axes = HashMap::new();
-    axes.insert(String::from("jx"), 0x30); // USB HID
-    axes.insert(String::from("jy"), 0x31); // USB HID
-    axes.insert(String::from("cx"), 0x32); // USB HID???
-    axes.insert(String::from("cy"), 0x33); // USB HID???
+    axes.insert(String::from("jx"), 0x30); // USB HID: X
+    axes.insert(String::from("jy"), 0x31); // USB HID: Y
+    axes.insert(String::from("cx"), 0x33); // USB HID: Rx
+    axes.insert(String::from("cy"), 0x34); // USB HID: Ry
 
     let mut buttons = HashMap::new();
     buttons.insert(String::from("a"), 0x01);
@@ -129,13 +129,8 @@ impl Controller {
     pub fn new(vjoy_device_number: u32, hardware: ControllerHardware) -> Result<Controller, String> {
         let vjoy_device_number_native = vjoy_device_number;
 
-        match vjoy_rust::get_vjoy_is_enabled() {
-            Ok(val) => {
-                if val == false {
-                    return Err(format!("vJoy isn't enabled. Have you installed vJoy?"));
-                }
-            },
-            Err(err) => return Err(format!("Unable to check if vJoy is enabled. Have you installed vJoy?"))
+        if vjoy_rust::is_vjoy_enabled() == false {
+            return Err(format!("vJoy isn't enabled. Have you installed vJoy?"));
         }
 
         match verify_vjoystick_hardware(vjoy_device_number_native, &hardware) {
@@ -151,7 +146,7 @@ impl Controller {
         }
 
         match vjoy_rust::reset_vjoystick(vjoy_device_number_native) {
-            Err(msg) => return Err(format!("{}", msg)),
+            Err(_) => return Err(format!("Unable to reset joystick")),
             _ => ()
         }
 
@@ -180,11 +175,11 @@ impl Controller {
         for (_, hid) in props.hardware.axes.iter() {
             let min = match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, *hid) {
                 Ok(min) => min,
-                Err(msg) => return Err(msg)
+                Err(msg) => return Err("Unable to get axis min")
             };
             let max = match vjoy_rust::get_vjoystick_axis_max(vjoy_device_number, *hid) {
                 Ok(max) => max,
-                Err(msg) => return Err(msg)
+                Err(_) => return Err("Unable to get axis max")
             };
 
             props.axis_mins.insert(*hid, min);
@@ -242,31 +237,16 @@ impl Controller {
 
 //@todo implement
 fn verify_vjoystick_hardware(index: u32, hardware: &ControllerHardware) -> Result<(), String> {
-    match vjoy_rust::get_vjoystick_axis_exists(index, 0x30) {
-        Ok(exists) => {
-            if exists == false {
-                return Err(format!("No X axis"));
-            }
-        },
-        Err(()) => return Err(format!("Unable to check for X axis"))
+    if vjoy_rust::get_vjoystick_axis_exists(index, 0x30)== false {
+        return Err(format!("No X axis"));
     }
 
-    match vjoy_rust::get_vjoystick_axis_exists(index, 0x31) {
-        Ok(exists) => {
-            if exists == false {
-                return Err(format!("No Y axis"));
-            }
-        },
-        Err(()) => return Err(format!("Unable to check for Y axis"))
+    if vjoy_rust::get_vjoystick_axis_exists(index, 0x31)== false {
+        return Err(format!("No Y axis"));
     }
 
-    match vjoy_rust::get_vjoystick_button_count(index) {
-        Ok(buttons) => {
-            if buttons < 14 {
-                return Err(format!("Less than {} buttons", 14));
-            }
-        },
-        Err(()) => return Err(format!("Unable to get button count"))
+    if vjoy_rust::get_vjoystick_button_count(index) < 14 {
+        return Err(format!("Less than {} buttons", 14));
     }
 
     Ok(())
