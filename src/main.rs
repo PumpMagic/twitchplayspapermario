@@ -19,11 +19,12 @@ use time::{Duration, get_time};
 
 use demc::DemC;
 use demc::TimedInputCommand;
+use demc::vn64c::Input;
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
 const CHAT_LOG_PATH: &'static str = "chat.txt";
-const VJOY_DEVICE_NUMBER: u8 = 1;
+const VJOY_DEVICE_NUMBER: u32 = 1;
 const MAX_JOYSTICK_COMMAND_DURATION: u32 = 5000;
 const MAX_BUTTON_COMMAND_DURATION: u32 = 5000;
 const MAX_B_BUTTON_COMMAND_DURATION: u32 = 30000;
@@ -46,6 +47,17 @@ fn parse_config_file() -> (String, String, String, String) {
     let channel = String::from(toml_tree.lookup("irc.channel").unwrap().as_str().unwrap());
     
     (server, pass, nick, channel)
+}
+
+
+fn joystick_dirstr_to_xy_str(direction: u16, strength: f32) -> Result<(f32, f32), &'static str> {
+    // Convert direction from degrees to radians
+    let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
+
+    let x_strength = direction_rad.cos() * strength;
+    let y_strength = direction_rad.sin() * strength;
+
+    Ok((x_strength, y_strength))
 }
 
 
@@ -87,10 +99,10 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
                 Some(command) => {
                     cumulative_delay += command.duration.num_milliseconds() as u32;
                     match command.command {
-                        demc::vn64c::InputCommand::Joystick{direction: _, strength: _} => {
+                        Input::Axis(_, _) => {
                             cumulative_delay += MILLISECONDS_PER_FRAME*2;
                         },
-                        demc::vn64c::InputCommand::Button{name: _, value: _} => {
+                        Input::Button(_, _) => {
                             ()
                         }
                     }
@@ -143,24 +155,28 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             }
             
             let time_now = get_time();
-            let command = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
+            let (x, y) = joystick_dirstr_to_xy_str(joystick_direction, joystick_strength).unwrap();
+            let command_x = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
                                                              duration: Duration::milliseconds(joystick_duration as i64),
-                                                             command: demc::vn64c::InputCommand::Joystick { direction: joystick_direction,
-                                                                                               strength: joystick_strength} };
-            res.push(command);
+                                                             command: demc::vn64c::Input::Axis(String::from("x"), x)};
+            let command_y = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
+                                                             duration: Duration::milliseconds(joystick_duration as i64),
+                                                             command: demc::vn64c::Input::Axis(String::from("y"), y)};
+            res.push(command_x);
+            res.push(command_y.clone());
             
-            last_command = Some(command.clone());
+            last_command = Some(command_y);
         } else if let Some(_) = cap.name("button") {
             match last_command {
                 Some(command) => {
                     match command.command {
-                        demc::vn64c::InputCommand::Joystick{direction: _, strength: _} => {
+                        demc::vn64c::Input::Axis(_, _) => {
                             cumulative_delay += command.duration.num_milliseconds() as u32;
                             if command.duration.num_milliseconds() >= MILLISECONDS_PER_FRAME as i64 {
                                 cumulative_delay -= MILLISECONDS_PER_FRAME;
                             }
                         },
-                        demc::vn64c::InputCommand::Button{name: _, value: _} => {
+                        demc::vn64c::Input::Button(_, _) => {
                             if command.duration.num_milliseconds() == MILLISECONDS_PER_FRAME as i64 * 5 {
                                 cumulative_delay += 500; //massive hack
                             } else {
@@ -176,27 +192,11 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             // "button_name" (mandatory)
             // "button_duration" (optional),
             // "button_duration_units" (optional; must be present if joystick_duration is)
-            let mut button_name;
+            let button_name;
             let mut button_duration: u32 = MILLISECONDS_PER_FRAME*5;
             
             if let Some(bncap) = cap.name("button_name") {
-                button_name = match bncap {
-                    "a" => demc::vn64c::ButtonName::A,
-                    "b" => demc::vn64c::ButtonName::B,
-                    "z" => demc::vn64c::ButtonName::Z,
-                    "l" => demc::vn64c::ButtonName::L,
-                    "r" => demc::vn64c::ButtonName::R,
-                    "start" => demc::vn64c::ButtonName::Start,
-                    "cup" => demc::vn64c::ButtonName::Cup,
-                    "cdown" => demc::vn64c::ButtonName::Cdown,
-                    "cleft" => demc::vn64c::ButtonName::Cleft,
-                    "cright" => demc::vn64c::ButtonName::Cright,
-                    "dup" => demc::vn64c::ButtonName::Dup,
-                    "ddown" => demc::vn64c::ButtonName::Ddown,
-                    "dleft" => demc::vn64c::ButtonName::Dleft,
-                    "dright" => demc::vn64c::ButtonName::Dright,
-                    _ => return None
-                };
+                button_name = bncap;
             } else {
                 return None;
             }
@@ -229,10 +229,10 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             let time_now = get_time();
             let command = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
                                               duration: Duration::milliseconds(button_duration as i64),
-                                              command: demc::vn64c::InputCommand::Button { name: button_name, value: true } };
-            res.push(command);
+                                              command: demc::vn64c::Input::Button(String::from(button_name), true)};
+            res.push(command.clone());
             
-            last_command = Some(command.clone());
+            last_command = Some(command);
         } else if let Some(dcap) = cap.name("delay") {
             // delay command - only one argument, the delay to insert
             match dcap {
@@ -274,7 +274,7 @@ fn main() {
     let (server, pass, nick, channel) = parse_config_file();
     
     // Initialize a democratized virtual N64 controller
-    let controller = DemC::new(VJOY_DEVICE_NUMBER).unwrap();
+    let controller = DemC::new_n64(VJOY_DEVICE_NUMBER).unwrap();
     
     // Start our IRC connection
     let tmi_stream = tmi::TmiStream::establish(server, pass, nick, channel).unwrap();
@@ -296,13 +296,14 @@ fn main() {
         match tmi_stream.receive() {
             Ok((sender, message)) => {
                 let mut log_string: String;
-                if let Some(cmds) = parse_string_as_commands(&message, &re) {
-                    for &cmd in cmds.iter() {
-                        controller.add_command(cmd);
-                    }
-                    log_string = format!("_{}: {}", sender, message)
-                } else {
-                    log_string = format!("{}: {}", sender, message)
+                match parse_string_as_commands(&message, &re) {
+                    Some(cmds) => {
+                        for cmd in cmds.iter() {
+                            controller.add_command(cmd);
+                        }
+                        log_string = format!("_{}: {}", sender, message);
+                    },
+                    None => { log_string = format!("{}: {}", sender, message); }
                 }
 
                 chat_log_file.write_all(&log_string.as_bytes());

@@ -36,7 +36,7 @@ pub fn get_vjoystick_axis_min(index: u32, axis: u32) -> Result<i64, &'static str
         if min_result == 0 {
                 Err("Unable to get axis minimum")
         } else {
-                Ok(min)
+                Ok(min as i64)
         }
     }
 }
@@ -49,7 +49,7 @@ pub fn get_vjoystick_axis_max(index: u32, axis: u32) -> Result<i64, &'static str
         if max_result == 0 {
                 Err("Unable to get axis maximum: does the axis exist?")
         } else {
-                Ok(max)
+                Ok(max as i64)
         }
     }
 }
@@ -83,7 +83,7 @@ pub fn reset_vjoystick(index: u32) -> Result<(), &'static str> {
 
 pub fn set_vjoystick_axis(index: u32, axis: u32, value: i64) -> Result<(), ()> {
     unsafe {
-        let set_x_result = vjoyinterface::SetAxis(value, index, axis);
+        let set_x_result = vjoyinterface::SetAxis(value as libc::c_long, index, axis);
         if set_x_result == 0 {
             return Err(());
         }
