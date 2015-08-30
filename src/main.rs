@@ -1,7 +1,9 @@
 #![allow(unused_must_use)]
+#![allow(dead_code)]
 
 mod tmi;
 mod demc;
+mod keystroke;
 
 extern crate regex;
 extern crate toml;
@@ -271,7 +273,23 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
 }
 
 
+fn handle_mod_commands(sender: &String, msg: &String) {
+    match sender.to_lowercase().as_ref() {
+        "twitchplayspapermario"|"xxn1" => {
+            match msg.to_lowercase().as_ref() {
+                "!savestate" => keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F5)),
+                "!loadstate" => keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F7)),
+                _ => ()
+            }
+        },
+        _ => ()
+    }
+}
+
+
 fn main() {
+    //keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F7));
+
     // Parse our configuration file
     let (server, pass, nick, channel) = parse_config_file();
     
@@ -307,6 +325,8 @@ fn main() {
                     },
                     None => { log_string = format!("{}: {}", sender, message); }
                 }
+                
+                handle_mod_commands(&sender, &message);
 
                 chat_log_file.write_all(&log_string.as_bytes());
                 chat_log_file.write_all("\r\n".as_bytes());
