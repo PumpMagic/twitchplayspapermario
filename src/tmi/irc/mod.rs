@@ -101,6 +101,7 @@ pub enum Command {
     Pass,
     Nick,
     Join,
+    ReplyEndOfNames,
     Privmsg,
     Ping,
     Pong
@@ -117,6 +118,7 @@ impl FromStr for Command {
             "PASS"                  =>  Ok(Command::Pass),
             "NICK"                  =>  Ok(Command::Nick),
             "JOIN"                  =>  Ok(Command::Join),
+            "366"|"RPL_ENDOFNAMES"  =>  Ok(Command::ReplyEndOfNames),
             "PRIVMSG"               =>  Ok(Command::Privmsg),
             "PING"                  =>  Ok(Command::Ping),
             "PONG"                  =>  Ok(Command::Pong),
@@ -133,6 +135,7 @@ impl Into<&'static str> for Command {
             Command::Pass => "PASS",
             Command::Nick => "NICK",
             Command::Join => "JOIN",
+            Command::ReplyEndOfNames => "RPL_ENDOFNAMES",
             Command::Privmsg => "PRIVMSG",
             Command::Ping => "PING",
             Command::Pong => "PONG"
@@ -336,44 +339,57 @@ impl IrcStream {
         // Spawn an IRC stream servicing thread. This thread maintains an IRC connection and
         // passes chat messages (privmsgs) through one of its channels
         let join_handle = thread::spawn(move|| {
-            // Send the server our credentials
-            //@todo implement log in failure recovery
-            match IrcStream::send_credentials(&mut stream, &pass, &nick) {
-                Ok(_) => (),
-                Err(_) => panic!("Unable to send credentials!")
-            }
-            
-            match IrcStream::send_join(&mut stream, &channel) {
-                Ok(_) => (),
-                Err(_) => panic!("Unable to join target channel!")
-            }
+            let mut connected = false;
             
             loop {
+                if connected == false {
+                    IrcStream::connect_to_channel(&mut stream, &pass, &nick, &channel);
+                    connected = true;
+                }
+            
                 // Check for kill signal; kill this thread if received
                 match rx_kill.try_recv() {
                     Ok(()) => return,
                     Err(_) => ()
                 }
                 
-                let m = IrcStream::get_message(&mut stream);
-                match m.command {
-                    // as a bot, all we really care about is:
-                    // did the server ping us? if so, pong it
-                    // did another client send a message? if so, pass it to our user
-                    Command::Ping => {
-                        match IrcStream::send_pong(&mut stream) {
-                            Ok(_) => (),
-                            Err(_) => panic!("Unable to send pong!")
+                match IrcStream::get_message(&mut stream) {
+                    Ok(message) => match message.command {
+                        // as a bot, all we really care about is:
+                        // has the server acknowledged our connection?
+                        // did the server ping us? if so, pong it
+                        // did another client send a message? if so, pass it to our user
+                        Command::ReplyEndOfNames => {
+                            connected = true;
                         }
+                        Command::Ping => {
+                            match IrcStream::send_pong(&mut stream) {
+                                Ok(_) => (),
+                                Err(_) => panic!("Unable to send pong!")
+                            }
+                        },
+                        Command::Privmsg => {
+                            match tx_privmsg.send(message) {
+                                Ok(_) => (),
+                                Err(err) => println!("Error sending received IRC message to user\
+                                                      app: {}", err)
+                            };
+                        },
+                        _ => ()
                     },
-                    Command::Privmsg => {
-                        match tx_privmsg.send(m) {
-                            Ok(_) => (),
-                            Err(err) => println!("Error sending received IRC message to user\
-                                                  app: {}", err)
-                        };
+                    Err(num) => {
+                        println!("Got error: {}", num);
+                        connected = false;
+                        loop {
+                            match TcpStream::connect(&server[..]) {
+                                Ok(the_stream) => {
+                                    stream = the_stream;
+                                    break;
+                                },
+                                Err(_) => ()
+                            }
+                        }
                     }
-                    _ => ()
                 }
             }
         });
@@ -391,60 +407,6 @@ impl IrcStream {
     
     pub fn kill(&self) {
         self.tx_kill.send(());
-    }
-    
-    
-    // Get a message from an IRC channel.
-    //@todo make this nonblocking - any way to do this without function-local static?
-    fn get_message(stream: &mut TcpStream) -> IrcMessage {
-        loop {
-            // Receive a message from the server as raw bytes.
-            // We'll convert it to a String once we've received the whole thing, to simplify parsing
-            let mut response: Vec<u8> = Vec::new();
-
-            // Read from the TCP stream until we get CRLF (which signals the termination of an IRC message)
-            // or the socket read fails
-            let mut valid_message_received = false;
-            loop {
-                let mut read_byte_vec: Vec<u8> = Vec::with_capacity(1);
-                
-                let mut read_adaptor = stream.take(1);
-                let read_result = read_adaptor.read_to_end(&mut read_byte_vec);
-                match read_result {
-                    Result::Ok(_) => {
-                        match read_byte_vec.get(0) {
-                            Some(byte) => { response.push(*byte); },
-                            None => {
-                                println!("Stream EOF. Closed by other party?");
-                                panic!("Implement reconnect!");
-                            }
-                        }
-                        if last_two_are_crlf(&response) {
-                            valid_message_received = true;
-                            break;
-                        }
-                    },
-                    Result::Err(error) => {
-                        println!("Stream read error: {:?}", error);
-                        break;
-                    }
-                }
-            }
-
-            if valid_message_received {
-                // Convert our raw byte vector into a String for easier, native processing
-                //@TODO Better handle invalid messages
-                match String::from_utf8(response) {
-                    Ok(msg_str) => {
-                        match IrcMessage::from_str(&msg_str) {
-                            Ok(msg) => return msg,
-                            _ => () // the string we received couldn't be parsed as a valid IRC message
-                        }
-                    },
-                    _ => ()
-                }
-            }
-        }
     }
     
     // Consider making a Message serializer...
@@ -481,6 +443,65 @@ impl IrcStream {
         try!(IrcStream::send_message(stream, pong_message));
         
         Ok(())
+    }
+    
+    fn connect_to_channel(stream: &mut TcpStream, pass: &String, nick: &String, channel: &String) {
+        // Send the server our credentials
+        //@todo implement log in failure recovery
+        match IrcStream::send_credentials(stream, pass, nick) {
+            Ok(_) => (),
+            Err(_) => panic!("Unable to send credentials!")
+        }
+        
+        match IrcStream::send_join(stream, channel) {
+            Ok(_) => (),
+            Err(_) => panic!("Unable to join target channel!")
+        }
+    }
+    
+    // Get a message from an IRC channel.
+    //@todo make this nonblocking - any way to do this without function-local static?
+    // Err(1): stream EOF - closed by other party
+    // Err(2): TCP read error - probably need to reconnect socket
+    // Err(3): stream received a non-UTF8 character?
+    fn get_message(stream: &mut TcpStream) -> Result<IrcMessage, u8> {
+        // Receive a message from the server as raw bytes.
+        // We'll convert it to a String once we've received the whole thing, to simplify parsing
+        let mut response: Vec<u8> = Vec::new();
+
+        // Read from the TCP stream until we get CRLF (which signals the termination of an IRC message)
+        // or the socket read fails
+        loop {
+            let mut read_byte_vec: Vec<u8> = Vec::with_capacity(1);
+            
+            let mut read_adaptor = stream.take(1);
+            let read_result = read_adaptor.read_to_end(&mut read_byte_vec);
+            match read_result {
+                Result::Ok(_) => {
+                    match read_byte_vec.get(0) {
+                        Some(byte) => response.push(*byte),
+                        None => return Err(1)
+                    }
+                    if last_two_are_crlf(&response) {
+                        // Convert our raw byte vector into a String for easier, native processing
+                        //@TODO Better handle invalid messages
+                        match String::from_utf8(response) {
+                            Ok(msg_str) => {
+                                match IrcMessage::from_str(&msg_str) {
+                                    Ok(msg) => {
+                                        println!("Got: {:?}", msg);
+                                        return Ok(msg);
+                                    },
+                                    _ => () // the string we received couldn't be parsed as a valid IRC message
+                                }
+                            },
+                            _ => return Err(3)
+                        }
+                    }
+                },
+                Result::Err(error) => return Err(2)
+            }
+        }
     }
 }
 

@@ -275,7 +275,7 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
 
 fn handle_mod_commands(sender: &String, msg: &String) {
     match sender.to_lowercase().as_ref() {
-        "twitchplayspapermario"|"xxn1" => {
+        "twitchplayspapermario"|"xxn1"|"kalarmar" => {
             match msg.to_lowercase().as_ref() {
                 "!savestate" => keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F5)),
                 "!loadstate" => keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F7)),
