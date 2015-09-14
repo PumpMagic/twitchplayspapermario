@@ -340,11 +340,12 @@ impl IrcStream {
         // passes chat messages (privmsgs) through one of its channels
         let join_handle = thread::spawn(move|| {
             let mut connected = false;
+            let mut awaiting_endofnames = false;
             
             loop {
-                if connected == false {
+                if connected == false && awaiting_endofnames == false {
                     IrcStream::connect_to_channel(&mut stream, &pass, &nick, &channel);
-                    connected = true;
+                    awaiting_endofnames = true;
                 }
             
                 // Check for kill signal; kill this thread if received
@@ -361,11 +362,12 @@ impl IrcStream {
                         // did another client send a message? if so, pass it to our user
                         Command::ReplyEndOfNames => {
                             connected = true;
+                            awaiting_endofnames = false;
                         }
                         Command::Ping => {
                             match IrcStream::send_pong(&mut stream) {
                                 Ok(_) => (),
-                                Err(_) => panic!("Unable to send pong!")
+                                Err(_) => println!("Unable to send pong!")
                             }
                         },
                         Command::Privmsg => {
@@ -377,18 +379,21 @@ impl IrcStream {
                         },
                         _ => ()
                     },
-                    Err(num) => {
-                        println!("Got error: {}", num);
-                        connected = false;
-                        loop {
-                            match TcpStream::connect(&server[..]) {
-                                Ok(the_stream) => {
-                                    stream = the_stream;
-                                    break;
-                                },
-                                Err(_) => ()
+                    Err(num) => match num {
+                        1|2|3 => {
+                            println!("Got error: {}", num);
+                            connected = false;
+                            loop {
+                                match TcpStream::connect(&server[..]) {
+                                    Ok(the_stream) => {
+                                        stream = the_stream;
+                                        break;
+                                    },
+                                    Err(_) => { thread::sleep_ms(100); }
+                                }
                             }
-                        }
+                        },
+                        _ => ()
                     }
                 }
             }
@@ -464,6 +469,7 @@ impl IrcStream {
     // Err(1): stream EOF - closed by other party
     // Err(2): TCP read error - probably need to reconnect socket
     // Err(3): stream received a non-UTF8 character?
+    // Err(4): received unrecognized message
     fn get_message(stream: &mut TcpStream) -> Result<IrcMessage, u8> {
         // Receive a message from the server as raw bytes.
         // We'll convert it to a String once we've received the whole thing, to simplify parsing
@@ -477,7 +483,7 @@ impl IrcStream {
             let mut read_adaptor = stream.take(1);
             let read_result = read_adaptor.read_to_end(&mut read_byte_vec);
             match read_result {
-                Result::Ok(_) => {
+                Ok(_) => {
                     match read_byte_vec.get(0) {
                         Some(byte) => response.push(*byte),
                         None => return Err(1)
@@ -488,18 +494,15 @@ impl IrcStream {
                         match String::from_utf8(response) {
                             Ok(msg_str) => {
                                 match IrcMessage::from_str(&msg_str) {
-                                    Ok(msg) => {
-                                        println!("Got: {:?}", msg);
-                                        return Ok(msg);
-                                    },
-                                    _ => () // the string we received couldn't be parsed as a valid IRC message
+                                    Ok(msg) => return Ok(msg),
+                                    _ => return Err(4)
                                 }
                             },
                             _ => return Err(3)
                         }
                     }
                 },
-                Result::Err(error) => return Err(2)
+                Err(_) => return Err(2)
             }
         }
     }

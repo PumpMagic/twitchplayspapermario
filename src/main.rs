@@ -58,8 +58,6 @@ fn joystick_dirstr_to_xy_str(direction: u16, strength: f32) -> Result<(f32, f32)
 
     let x_strength = direction_rad.cos() * strength;
     let y_strength = direction_rad.sin() * strength;
-
-    println!("dir: {} x: {} y: {}", direction, x_strength, y_strength);
     
     Ok(( x_strength, y_strength))
 }
