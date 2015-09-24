@@ -9,13 +9,15 @@ extern crate std;
 use std::collections::HashMap;
 
 
-// A map of available axes to USB HID axes and buttons to vJoy button indices
-pub struct ControllerHardware {
+// "Controller Inputs", here, is an exhaustive collection of maps between input names and their corresponding virtual
+// joystick input number
+// We split these into two groups here because vJoy axis input numbers and button input numbers are different widths
+pub struct ControllerInputs {
     axes: HashMap<String, u32>,
     buttons: HashMap<String, u8>
 }
 
-impl ControllerHardware {
+impl ControllerInputs {
     fn get_axis_hid(&self, name: &String) -> Option<u32> {
         match self.axes.get(name) {
             Some(hid) => Some(*hid),
@@ -31,7 +33,7 @@ impl ControllerHardware {
     }
 }
 
-pub fn get_n64_controller_hardware() -> ControllerHardware {
+pub fn get_n64_controller_hardware() -> ControllerInputs {
     let mut axes = HashMap::new();
     axes.insert(String::from("x"), 0x30); // USB HID
     axes.insert(String::from("y"), 0x31); // USB HID
@@ -52,10 +54,10 @@ pub fn get_n64_controller_hardware() -> ControllerHardware {
     buttons.insert(String::from("dleft"), 0x0d);
     buttons.insert(String::from("dright"), 0x0e);
 
-    ControllerHardware { axes: axes, buttons: buttons }
+    ControllerInputs { axes: axes, buttons: buttons }
 }
 
-pub fn get_gcn_controller_hardware() -> ControllerHardware {
+pub fn get_gcn_controller_hardware() -> ControllerInputs {
     let mut axes = HashMap::new();
     axes.insert(String::from("jx"), 0x30); // USB HID: X
     axes.insert(String::from("jy"), 0x31); // USB HID: Y
@@ -75,21 +77,21 @@ pub fn get_gcn_controller_hardware() -> ControllerHardware {
     buttons.insert(String::from("dleft"), 0x0a);
     buttons.insert(String::from("dright"), 0x0b);
 
-    ControllerHardware { axes: axes, buttons: buttons }
+    ControllerInputs { axes: axes, buttons: buttons }
 }
 
-// Properties (non-input-state characteristics) about a virtual N64 controller
+// Properties (non-input-state characteristics) about a virtual controller
 // Post-initialization, this should all be read-only
 struct Props {
     vjoy_device_number: u32,
 
-    hardware: ControllerHardware,
+    hardware: ControllerInputs,
 
     axis_mins: HashMap<u32, i64>,
     axis_maxes: HashMap<u32, i64>,
 }
 
-// Comprehensive status of a virtual N64 controller's inputs
+// Comprehensive status of a virtual controller's inputs
 struct State {
     axes: HashMap<u32, i64>,
     buttons: HashMap<u8, i32>
@@ -109,7 +111,7 @@ pub enum Input {
 /*
 impl Input {
     //@todo implement
-    fn is_compatible_with(&self, ch: &ControllerHardware) -> bool {
+    fn is_compatible_with(&self, ch: &ControllerInputs) -> bool {
         match *self {
             InputCommand::Axis{ name, percent} => {
                 if percent < 0.0 || percent> 1.0 {
@@ -124,9 +126,7 @@ impl Input {
 */
 
 impl Controller {
-    // Verify that a vJoy device can act as a virtual N64 controller, and if so, return a virtual
-    // N64 controller
-    pub fn new(vjoy_device_number: u32, hardware: ControllerHardware) -> Result<Controller, String> {
+    pub fn new(vjoy_device_number: u32, hardware: ControllerInputs) -> Result<Controller, String> {
         let vjoy_device_number_native = vjoy_device_number;
 
         if vjoy_rust::is_vjoy_enabled() == false {
@@ -156,8 +156,8 @@ impl Controller {
         }
     }
 
-    // Make and initialize a virtual N64 controller struct given the device number
-    fn from_hardware(vjoy_device_number: u32, hardware: ControllerHardware) -> Result<Controller, &'static str> {
+    // Make and initialize a virtual controller struct given the vJoy device number and controller hardware
+    fn from_hardware(vjoy_device_number: u32, hardware: ControllerInputs) -> Result<Controller, &'static str> {
         let mut props = Props {
             vjoy_device_number: vjoy_device_number,
 
@@ -236,7 +236,7 @@ impl Controller {
 
 
 //@todo implement
-fn verify_vjoystick_hardware(index: u32, hardware: &ControllerHardware) -> Result<(), String> {
+fn verify_vjoystick_hardware(index: u32, hardware: &ControllerInputs) -> Result<(), String> {
     if vjoy_rust::get_vjoystick_axis_exists(index, 0x30)== false {
         return Err(format!("No X axis"));
     }

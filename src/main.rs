@@ -21,7 +21,7 @@ use time::{Duration, get_time};
 
 use demc::DemC;
 use demc::TimedInputCommand;
-use demc::vn64c::Input;
+use demc::virtc::Input;
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
@@ -159,11 +159,11 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             let time_now = get_time();
             let (x, y) = joystick_dirstr_to_xy_str(joystick_direction, joystick_strength).unwrap();
             let command_x = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
-                                                             duration: Duration::milliseconds(joystick_duration as i64),
-                                                             command: demc::vn64c::Input::Axis(String::from("x"), x)};
+                                                duration: Duration::milliseconds(joystick_duration as i64),
+                                                command: demc::virtc::Input::Axis(String::from("x"), x)};
             let command_y = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
-                                                             duration: Duration::milliseconds(joystick_duration as i64),
-                                                             command: demc::vn64c::Input::Axis(String::from("y"), y)};
+                                                duration: Duration::milliseconds(joystick_duration as i64),
+                                                command: demc::virtc::Input::Axis(String::from("y"), y)};
             res.push(command_x);
             res.push(command_y.clone());
             
@@ -172,13 +172,13 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             match last_command {
                 Some(command) => {
                     match command.command {
-                        demc::vn64c::Input::Axis(_, _) => {
+                        demc::virtc::Input::Axis(_, _) => {
                             cumulative_delay += command.duration.num_milliseconds() as u32;
                             if command.duration.num_milliseconds() >= MILLISECONDS_PER_FRAME as i64 {
                                 cumulative_delay -= MILLISECONDS_PER_FRAME;
                             }
                         },
-                        demc::vn64c::Input::Button(_, _) => {
+                        demc::virtc::Input::Button(_, _) => {
                             if command.duration.num_milliseconds() == MILLISECONDS_PER_FRAME as i64 * 5 {
                                 cumulative_delay += 500; //massive hack
                             } else {
@@ -231,7 +231,7 @@ fn parse_string_as_commands(msg: &String, re: &Regex) -> Option<Vec<TimedInputCo
             let time_now = get_time();
             let command = TimedInputCommand { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
                                               duration: Duration::milliseconds(button_duration as i64),
-                                              command: demc::vn64c::Input::Button(String::from(button_name), true)};
+                                              command: demc::virtc::Input::Button(String::from(button_name), true)};
             res.push(command.clone());
             
             last_command = Some(command);
@@ -286,8 +286,6 @@ fn handle_mod_commands(sender: &String, msg: &String) {
 
 
 fn main() {
-    //keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F7));
-
     // Parse our configuration file
     let (server, pass, nick, channel) = parse_config_file();
     

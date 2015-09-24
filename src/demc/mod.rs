@@ -6,7 +6,7 @@ use std::thread;
 use time;
 use time::{Timespec, Duration};
 
-pub mod vn64c;
+pub mod virtc;
 
 
 fn get_button_guard_index(name: &str) -> usize {
@@ -35,12 +35,12 @@ fn get_button_guard_index(name: &str) -> usize {
 pub struct TimedInputCommand {
     pub start_time: Timespec,
     pub duration: Duration,
-    pub command: vn64c::Input
+    pub command: virtc::Input
 }
 
 // A democratized virtual N64 controller
 pub struct DemC {
-    controller: Arc<vn64c::Controller>,
+    controller: Arc<virtc::Controller>,
     
     tx_command: mpsc::Sender<TimedInputCommand>,
     command_listener: thread::JoinHandle<()>
@@ -48,7 +48,7 @@ pub struct DemC {
 
 impl DemC {
     pub fn new_n64(vjoy_device_number: u32) -> Result<DemC, u8> {
-        let controller_result = vn64c::Controller::new(vjoy_device_number, vn64c::get_n64_controller_hardware());
+        let controller_result = virtc::Controller::new(vjoy_device_number, virtc::get_n64_controller_hardware());
         let controller = match controller_result {
             Ok(controller) => controller,
             Err(_) => return Err(1)
@@ -90,10 +90,10 @@ impl DemC {
                 for command in queued_commands.iter() {
                     if command.start_time <= time_now {
                         match command.command.clone() {
-                            vn64c::Input::Axis(_, _) => {
+                            virtc::Input::Axis(_, _) => {
                                 active_joystick_commands.push(command.clone());
                             }
-                            vn64c::Input::Button(name, _) => {
+                            virtc::Input::Button(name, _) => {
                                 // Is a button in a press-release cycle? If so, ignore vote
                                 // Otherwise, hold the button for as long as the command specified,
                                 // then release it indefinitely but for at least 0.0498 seconds
@@ -108,10 +108,10 @@ impl DemC {
 
                                         let myclone = command.clone();
                                         thread::spawn(move || {
-                                            let command1 = vn64c::Input::Button(closure_button_name.clone(), true);
+                                            let command1 = virtc::Input::Button(closure_button_name.clone(), true);
                                             closure_controller.change_input(&command1);
                                             thread::sleep_ms(myclone.duration.num_milliseconds() as u32);
-                                            let command2 = vn64c::Input::Button(closure_button_name.clone(), false);
+                                            let command2 = virtc::Input::Button(closure_button_name.clone(), false);
                                             closure_controller.change_input(&command2);
                                             thread::sleep_ms(34);
                                         });
@@ -148,7 +148,7 @@ impl DemC {
                     // Loop over all commands
                     for command in active_joystick_commands.iter() {
                         match command.command.clone() {
-                            vn64c::Input::Axis(name, strength) => {
+                            virtc::Input::Axis(name, strength) => {
                                 if name == "x" {
                                     x_sum += strength;
                                     num_x_commands += 1;
@@ -165,13 +165,13 @@ impl DemC {
                     let x_avg = (x_sum / num_x_commands as f32) as f32;
                     let y_avg = (y_sum / num_y_commands as f32) as f32;
 
-                    let x_command = vn64c::Input::Axis(String::from("x"), x_avg);
-                    let y_command = vn64c::Input::Axis(String::from("y"), y_avg);
+                    let x_command = virtc::Input::Axis(String::from("x"), x_avg);
+                    let y_command = virtc::Input::Axis(String::from("y"), y_avg);
                     arc_controller_command_handler.change_input(&x_command);
                     arc_controller_command_handler.change_input(&y_command);
                 } else {
-                    let x_command = vn64c::Input::Axis(String::from("x"), 0.0);
-                    let y_command = vn64c::Input::Axis(String::from("y"), 0.0);
+                    let x_command = virtc::Input::Axis(String::from("x"), 0.0);
+                    let y_command = virtc::Input::Axis(String::from("y"), 0.0);
                     arc_controller_command_handler.change_input(&x_command);
                     arc_controller_command_handler.change_input(&y_command);
                 }
