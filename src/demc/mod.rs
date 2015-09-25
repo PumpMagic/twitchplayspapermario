@@ -185,10 +185,10 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 let (x, y) = joystick_dirstr_to_xy_str(joystick_direction, joystick_strength).unwrap();
                 let command_x = TimedInput { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
                                                     duration: Duration::milliseconds(joystick_duration as i64),
-                                                    command: virtc::Input::Axis(String::from("x"), x)};
+                                                    command: virtc::Input::Axis(String::from("jx"), x)};
                 let command_y = TimedInput { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
                                                     duration: Duration::milliseconds(joystick_duration as i64),
-                                                    command: virtc::Input::Axis(String::from("y"), y)};
+                                                    command: virtc::Input::Axis(String::from("jy"), y)};
                 res.push(command_x);
                 res.push(command_y.clone());
 
@@ -630,7 +630,7 @@ impl DemGcnC {
 
                     let x_avg = (x_sum / num_x_commands as f32) as f32;
                     let y_avg = (y_sum / num_y_commands as f32) as f32;
-
+                    
                     let x_command = virtc::Input::Axis(String::from("jx"), x_avg);
                     let y_command = virtc::Input::Axis(String::from("jy"), y_avg);
                     arc_controller_command_handler.set_input(&x_command);

@@ -63,7 +63,7 @@ trait HasAxes: IsVJoyDevice {
     fn set_axis_state(&self, name: &String, strength: f32) -> Result<(), &'static str> {
         let hid = self.get_axis_hid(name).unwrap();
 
-        let mid: i64 = ((self.get_axis_max(name).unwrap() - self.get_axis_max(&name).unwrap())/2) as i64;
+        let mid: i64 = ((self.get_axis_max(name).unwrap() - self.get_axis_min(&name).unwrap())/2) as i64;
         let val = mid + (strength * (mid as f32)) as i64;
 
         match vjoy_rust::set_vjoystick_axis(self.get_vjoy_device_number(), hid, val) {
@@ -348,7 +348,7 @@ fn get_gcn_controller_hardware(vjoy_device_number: u32)
         Ok(max) => max,
         Err(_) => return Err(4)
     };
-
+    
     axes.insert(String::from("jx"), (0x30, jx_min, jx_max));
     axes.insert(String::from("jy"), (0x31, jy_min, jy_max));
     axes.insert(String::from("cx"), (0x33, cx_min, cx_max));
@@ -362,10 +362,11 @@ fn get_gcn_controller_hardware(vjoy_device_number: u32)
     buttons.insert(String::from("z"), 0x05);
     buttons.insert(String::from("l"), 0x06);
     buttons.insert(String::from("r"), 0x07);
-    buttons.insert(String::from("dup"), 0x08);
-    buttons.insert(String::from("ddown"), 0x09);
-    buttons.insert(String::from("dleft"), 0x0a);
-    buttons.insert(String::from("dright"), 0x0b);
+    buttons.insert(String::from("start"), 0x08);
+    buttons.insert(String::from("dup"), 0x09);
+    buttons.insert(String::from("ddown"), 0x0a);
+    buttons.insert(String::from("dleft"), 0x0b);
+    buttons.insert(String::from("dright"), 0x0c);
 
     Ok((axes, buttons))
 }
