@@ -1,15 +1,83 @@
 mod irc;
 
+use std::fs::File;
+use std::io::Read;
+use std::io::Write;
+
+use toml;
+
+
+// Err(1): unable to find value in tree
+// Err(2): unable to parse value as string
+fn get_toml_value_as_string(tree: &toml::Value, value: &str) -> Result<String, u8> {
+    match tree.lookup(value) {
+        Some(val) => match val.as_str() {
+            Some(val) => Ok(String::from(val)),
+            None => Err(2)
+        },
+        None => Err(1)
+    }
+}
+
+// Parse the TPPM toml configuration file; return the server, password, nick, and channel
+// Err(1): Unable to open config file
+// Err(2): Unable to parse config file as TOML
+// Err(3): Required parameter missing or malformed
+fn parse_config_file(path: &str) -> Result<(String, String, String, String), u8> {
+    let mut config_file = match File::open(path) {
+        Ok(file) => file,
+        Err(_) => return Err(1)
+    };
+    let mut config_string = String::new();
+    config_file.read_to_string(&mut config_string);
+
+    //@todo understand this generics magic
+    let toml_tree: toml::Value = match config_string.parse() {
+        Ok(tree) => tree,
+        Err(_) => return Err(2)
+    };
+
+    let server = match get_toml_value_as_string(&toml_tree, "irc.server") {
+        Ok(server) => server,
+        Err(_) => return Err(3)
+    };
+
+    let pass = match get_toml_value_as_string(&toml_tree, "irc.pass") {
+        Ok(pass) => pass,
+        Err(_) => return Err(3)
+    };
+
+    let nick = match get_toml_value_as_string(&toml_tree, "irc.nick") {
+        Ok(nick) => nick,
+        Err(_) => return Err(3)
+    };
+
+    let channel = match get_toml_value_as_string(&toml_tree, "irc.channel") {
+        Ok(channel) => channel,
+        Err(_) => return Err(3)
+    };
+
+    Ok((server, pass, nick, channel))
+}
+
+
 pub struct TmiStream {
     irc_stream: irc::IrcStream
 }
 
 impl TmiStream {
-    // Err(1): establishing IRC stream failed
-    pub fn establish(server: String, pass: String, nick: String, channel: String) -> Result<Self, u8> {
+    // Err(1): parsing TOML file failed
+    // Err(2): establishing IRC stream failed
+    pub fn establish(path: &str) -> Result<Self, u8> {
+        // Parse our configuration file
+        let (server, pass, nick, channel) = match parse_config_file(path) {
+            Ok((server, pass, nick, channel)) => (server, pass, nick, channel),
+            Err(_) => return Err(1)
+        };
+
         match irc::IrcStream::establish(server, pass, nick, channel) {
             Ok(irc_stream) => Ok(TmiStream { irc_stream: irc_stream} ),
-            Err(_) => Err(1)
+            Err(_) => Err(2)
         }
     }
 

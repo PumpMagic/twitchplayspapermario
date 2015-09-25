@@ -9,34 +9,178 @@ extern crate std;
 use std::collections::HashMap;
 
 
-// "Controller Inputs", here, is an exhaustive collection of maps between input names and their corresponding virtual
-// joystick input number
-// We split these into two groups here because vJoy axis input numbers and button input numbers are different widths
-pub struct ControllerInputs {
-    axes: HashMap<String, u32>,
-    buttons: HashMap<String, u8>
+trait IsVJoyDevice {
+    fn get_vjoy_device_number(&self) -> u32;
 }
 
-impl ControllerInputs {
+trait HasAxes: IsVJoyDevice {
+    // Values are HID constant - min - max triplets
+    fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)>;
+
     fn get_axis_hid(&self, name: &String) -> Option<u32> {
-        match self.axes.get(name) {
-            Some(hid) => Some(*hid),
+        match self.get_axis_map().get(name) {
+            Some(&(hid, _, _)) => Some(hid),
             None => None
         }
     }
 
+    fn get_axis_min(&self, name: &String) -> Option<i64> {
+        match self.get_axis_map().get(name) {
+            Some(&(_, min, _)) => Some(min),
+            None => None
+        }
+    }
+
+    fn get_axis_max(&self, name: &String) -> Option<i64> {
+        match self.get_axis_map().get(name) {
+            Some(&(_, _, max)) => Some(max),
+            None => None
+        }
+    }
+
+    fn get_axis_state(&self, name: &String) -> Option<i64>;
+
+    //@todo change this to raw value, not percent
+    fn set_axis_state(&self, name: &String, strength: f32) -> Result<(), &'static str> {
+        let hid = self.get_axis_hid(name).unwrap();
+
+        let mid: i64 = ((self.get_axis_max(name).unwrap() - self.get_axis_max(&name).unwrap())/2) as i64;
+        let val = mid + (strength * (mid as f32)) as i64;
+
+        match vjoy_rust::set_vjoystick_axis(self.get_vjoy_device_number(), hid, val) {
+            Ok(_) => Ok(()),
+            Err(_) => Err("Unable to set axis")
+        }
+    }
+}
+
+trait HasButtons: IsVJoyDevice {
+    fn get_button_map(&self) -> &HashMap<String, u8>;
+
     fn get_button_index(&self, name: &String) -> Option<u8> {
-        match self.buttons.get(name) {
+        match self.get_button_map().get(name) {
             Some(index) => Some(*index),
             None => None
         }
     }
+
+    fn get_button_state(&self, name: &String) -> Option<bool>;
+
+    fn set_button_state(&self, name: &String, value: bool) -> Result<(), &'static str> {
+        let index = self.get_button_index(name).unwrap();
+
+        let valc = value as i32;
+
+        match vjoy_rust::set_vjoystick_button(self.get_vjoy_device_number(), index, valc) {
+            Ok(_) => Ok(()),
+            Err(_) => Err("Unable to set virtual joystick button")
+        }
+    }
 }
 
-pub fn get_n64_controller_hardware() -> ControllerInputs {
+pub trait AcceptsInputs: HasAxes + HasButtons {
+    fn set_input(&self, input: &Input) -> Result<(), &'static str> {
+        match input.clone() {
+            Input::Axis(name, strength) => self.set_axis_state(&name, strength),
+            Input::Button(name, value) => self.set_button_state(&name, value)
+        }
+    }
+}
+
+
+//@todo track state
+pub struct VN64C {
+    axes: HashMap<String, (u32, i64, i64)>,
+    buttons: HashMap<String, u8>,
+
+    vjoy_device_number: u32
+}
+
+impl IsVJoyDevice for VN64C {
+    fn get_vjoy_device_number(&self) -> u32 {
+        return self.vjoy_device_number;
+    }
+}
+
+impl HasAxes for VN64C {
+    fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)> {
+        return &self.axes;
+    }
+
+    fn get_axis_state(&self, name: &String) -> Option<i64> {
+        return Some(0); //@todo
+    }
+}
+
+impl HasButtons for VN64C {
+    fn get_button_map(&self) -> &HashMap<String, u8> {
+        return &self.buttons;
+    }
+
+    fn get_button_state(&self, name: &String) -> Option<bool> {
+        return Some(false);
+    }
+}
+
+impl AcceptsInputs for VN64C {
+}
+
+impl VN64C {
+    pub fn new(vjoy_device_number: u32) -> Result<Self, String> {
+        let vjoy_device_number_native = vjoy_device_number;
+
+        if vjoy_rust::is_vjoy_enabled() == false {
+            return Err(format!("vJoy isn't enabled. Have you installed vJoy?"));
+        }
+
+        match verify_vjoystick_hardware(vjoy_device_number_native) {
+            Ok(()) => (),
+            Err(err) => return Err(format!("Virtual joystick {} can't act as an N64 controller: {}.\
+                                            You may need to reconfigure your vJoy device",
+                                           vjoy_device_number, err))
+        }
+
+        match vjoy_rust::claim_vjoystick(vjoy_device_number_native) {
+            Err(msg) => return Err(format!("{}", msg)),
+            _ => ()
+        }
+
+        match vjoy_rust::reset_vjoystick(vjoy_device_number_native) {
+            Err(_) => return Err(format!("Unable to reset joystick")),
+            _ => ()
+        }
+
+        let (axes, buttons) = match get_n64_controller_hardware(vjoy_device_number) {
+            Ok((axes, buttons)) => (axes, buttons),
+            Err(_) => return Err(format!("Getting N64 controller hardware failed"))
+        };
+
+        Ok( VN64C { axes: axes, buttons: buttons, vjoy_device_number: vjoy_device_number } )
+    }
+}
+
+fn get_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, u8>), u8> {
     let mut axes = HashMap::new();
-    axes.insert(String::from("x"), 0x30); // USB HID
-    axes.insert(String::from("y"), 0x31); // USB HID
+
+    let x_min = match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, 0x30) {
+        Ok(min) => min,
+        Err(msg) => return Err(1)
+    };
+    let x_max = match vjoy_rust::get_vjoystick_axis_max(vjoy_device_number, 0x30) {
+        Ok(max) => max,
+        Err(_) => return Err(2)
+    };
+    let y_min = match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, 0x31) {
+        Ok(min) => min,
+        Err(msg) => return Err(3)
+    };
+    let y_max = match vjoy_rust::get_vjoystick_axis_max(vjoy_device_number, 0x31) {
+        Ok(max) => max,
+        Err(_) => return Err(4)
+    };
+
+    axes.insert(String::from("x"), (0x30, x_min, x_max));
+    axes.insert(String::from("y"), (0x31, y_min, y_max));
 
     let mut buttons = HashMap::new();
     buttons.insert(String::from("a"), 0x01);
@@ -54,10 +198,11 @@ pub fn get_n64_controller_hardware() -> ControllerInputs {
     buttons.insert(String::from("dleft"), 0x0d);
     buttons.insert(String::from("dright"), 0x0e);
 
-    ControllerInputs { axes: axes, buttons: buttons }
+    Ok((axes, buttons))
 }
 
-pub fn get_gcn_controller_hardware() -> ControllerInputs {
+/*
+fn get_gcn_controller_hardware() -> ControllerInputs {
     let mut axes = HashMap::new();
     axes.insert(String::from("jx"), 0x30); // USB HID: X
     axes.insert(String::from("jy"), 0x31); // USB HID: Y
@@ -79,28 +224,7 @@ pub fn get_gcn_controller_hardware() -> ControllerInputs {
 
     ControllerInputs { axes: axes, buttons: buttons }
 }
-
-// Properties (non-input-state characteristics) about a virtual controller
-// Post-initialization, this should all be read-only
-struct Props {
-    vjoy_device_number: u32,
-
-    hardware: ControllerInputs,
-
-    axis_mins: HashMap<u32, i64>,
-    axis_maxes: HashMap<u32, i64>,
-}
-
-// Comprehensive status of a virtual controller's inputs
-struct State {
-    axes: HashMap<u32, i64>,
-    buttons: HashMap<u8, i32>
-}
-
-pub struct Controller {
-    props: Props,
-    state: State
-}
+*/
 
 #[derive(Clone)]
 pub enum Input {
@@ -108,135 +232,9 @@ pub enum Input {
     Button(String, bool)
 }
 
-/*
-impl Input {
-    //@todo implement
-    fn is_compatible_with(&self, ch: &ControllerInputs) -> bool {
-        match *self {
-            InputCommand::Axis{ name, percent} => {
-                if percent < 0.0 || percent> 1.0 {
-                    return false;
-                }
-                return true
-            },
-            InputCommand::Button { name: _, value: _ } => { return true; }
-        }
-    }
-}
-*/
-
-impl Controller {
-    pub fn new(vjoy_device_number: u32, hardware: ControllerInputs) -> Result<Controller, String> {
-        let vjoy_device_number_native = vjoy_device_number;
-
-        if vjoy_rust::is_vjoy_enabled() == false {
-            return Err(format!("vJoy isn't enabled. Have you installed vJoy?"));
-        }
-
-        match verify_vjoystick_hardware(vjoy_device_number_native, &hardware) {
-            Ok(()) => (),
-            Err(err) => return Err(format!("Virtual joystick {} can't act as an N64 controller: {}.\
-                                            You may need to reconfigure your vJoy device",
-                                           vjoy_device_number, err))
-        }
-
-        match vjoy_rust::claim_vjoystick(vjoy_device_number_native) {
-            Err(msg) => return Err(format!("{}", msg)),
-            _ => ()
-        }
-
-        match vjoy_rust::reset_vjoystick(vjoy_device_number_native) {
-            Err(_) => return Err(format!("Unable to reset joystick")),
-            _ => ()
-        }
-
-        match Controller::from_hardware(vjoy_device_number_native, hardware) {
-            Err(msg) => Err(format!("{}", msg)),
-            Ok(controller) => Ok(controller)
-        }
-    }
-
-    // Make and initialize a virtual controller struct given the vJoy device number and controller hardware
-    fn from_hardware(vjoy_device_number: u32, hardware: ControllerInputs) -> Result<Controller, &'static str> {
-        let mut props = Props {
-            vjoy_device_number: vjoy_device_number,
-
-            hardware: hardware,
-
-            axis_mins: HashMap::new(),
-            axis_maxes: HashMap::new()
-        };
-        let mut state = State {
-            axes: HashMap::new(),
-            buttons: HashMap::new()
-        };
-
-        // Get and capture vjoystick min and max; set joystick values to neutral
-        for (_, hid) in props.hardware.axes.iter() {
-            let min = match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, *hid) {
-                Ok(min) => min,
-                Err(msg) => return Err("Unable to get axis min")
-            };
-            let max = match vjoy_rust::get_vjoystick_axis_max(vjoy_device_number, *hid) {
-                Ok(max) => max,
-                Err(_) => return Err("Unable to get axis max")
-            };
-
-            props.axis_mins.insert(*hid, min);
-            props.axis_maxes.insert(*hid, max);
-            state.axes.insert(*hid, (max-min)/2);
-        }
-
-        for (_, index) in props.hardware.buttons.iter() {
-            state.buttons.insert(*index, 0);
-        }
-
-        Ok(Controller { props: props, state: state })
-    }
-
-    pub fn change_input(&self, input: &Input) -> Result<(), &'static str> {
-        /* match command.is_compatible_with(self.props.hardware) {
-            true => (),
-            false => { return Err("Input command is invalid. Valid directions: [0, 359]; valid strengths: [0.0, 1.0]"); }
-        } */
-
-        match input.clone() {
-            Input::Axis(name, strength) => self.change_joystick(&name, strength),
-            Input::Button(name, value) => self.change_button(&name, value)
-        }
-    }
-    
-    fn change_joystick(&self, name: &String, strength: f32) -> Result<(), &'static str> {
-        let hid = self.props.hardware.get_axis_hid(name).unwrap();
-
-        let mid: i64 = ((self.props.axis_maxes.get(&hid).unwrap() - self.props.axis_mins.get(&hid).unwrap())/2) as i64;
-        let val = mid + (strength * (mid as f32)) as i64;
-        
-        match vjoy_rust::set_vjoystick_axis(self.props.vjoy_device_number, hid, val) {
-            Ok(_) => Ok(()),
-            Err(_) => Err("Unable to set axis")
-        }
-    }
-    
-    fn change_button(&self, name: &String, value: bool) -> Result<(), &'static str> {
-        let index = self.props.hardware.get_button_index(name).unwrap();
-
-        let valc = value as i32;
-
-        match vjoy_rust::set_vjoystick_button(self.props.vjoy_device_number, index, valc) {
-            Ok(_) => Ok(()),
-            Err(_) => Err("Unable to set virtual joystick button")
-        }
-    }
-
-    //@todo implement
-    pub fn write_to_console(&self) {
-    }
-}
-
 
 //@todo implement
-fn verify_vjoystick_hardware(index: u32, hardware: &ControllerInputs) -> Result<(), String> {
+fn verify_vjoystick_hardware(index: u32) -> Result<(), String> {
     if vjoy_rust::get_vjoystick_axis_exists(index, 0x30)== false {
         return Err(format!("No X axis"));
     }
