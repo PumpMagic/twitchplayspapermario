@@ -250,19 +250,19 @@ fn get_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<Strin
 
 
 //@todo track state
-pub struct VGCNC {
+pub struct VGcnC {
     axes: HashMap<String, (u32, i64, i64)>,
     buttons: HashMap<String, u8>,
     vjoy_device_number: u32
 }
 
-impl IsVJoyDevice for VGCNC {
+impl IsVJoyDevice for VGcnC {
     fn get_vjoy_device_number(&self) -> u32 {
         return self.vjoy_device_number;
     }
 }
 
-impl HasAxes for VGCNC {
+impl HasAxes for VGcnC {
     fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)> {
         return &self.axes;
     }
@@ -272,7 +272,7 @@ impl HasAxes for VGCNC {
     }
 }
 
-impl HasButtons for VGCNC {
+impl HasButtons for VGcnC {
     fn get_button_map(&self) -> &HashMap<String, u8> {
         return &self.buttons;
     }
@@ -282,11 +282,11 @@ impl HasButtons for VGCNC {
     }
 }
 
-impl HasAxesAndButtons for VGCNC {}
+impl HasAxesAndButtons for VGcnC {}
 
-impl AcceptsInputs for VGCNC {}
+impl AcceptsInputs for VGcnC {}
 
-impl VGCNC {
+impl VGcnC {
     // Err(1): unable to get GCN hardware
     // Err(2): vjoystick doesn't meet GCN controller requirements
     // Err(3): unable to claim and reset vjoystick
@@ -296,7 +296,7 @@ impl VGCNC {
             Err(_) => return Err(1)
         };
 
-        let vgcnc = VGCNC { axes: axes, buttons: buttons, vjoy_device_number: vjoy_device_number };
+        let vgcnc = VGcnC { axes: axes, buttons: buttons, vjoy_device_number: vjoy_device_number };
 
         match vgcnc.verify_vjoystick_compatibility() {
             Ok(_) => (),

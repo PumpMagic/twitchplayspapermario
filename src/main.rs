@@ -15,7 +15,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Write;
 
-use demc::{DemN64C, ChatInterfaced};
+use demc::{DemN64C, DemGcnC, ChatInterfaced};
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
@@ -40,7 +40,7 @@ fn handle_mod_commands(sender: &String, msg: &String) {
 
 fn main() {
     // Initialize a democratized virtual controller
-    let controller = match DemN64C::new(VJOY_DEVICE_NUMBER) {
+    let controller = match DemGcnC::new(VJOY_DEVICE_NUMBER) {
         Ok(controller) => controller,
         Err(err) => panic!("Unable to create virtual controller: DemC error {}", err)
     };

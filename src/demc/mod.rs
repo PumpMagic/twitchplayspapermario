@@ -454,3 +454,182 @@ fn joystick_dirstr_to_xy_str(direction: u16, strength: f32) -> Result<(f32, f32)
 
     Ok(( x_strength, y_strength))
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// A democratized virtual controller
+pub struct DemGcnC {
+    controller: Arc<virtc::VGcnC>,
+    re: Regex,
+    tx_command: mpsc::Sender<TimedInput>,
+    command_listener: thread::JoinHandle<()>
+}
+
+impl CommandedAsynchronously for DemGcnC {
+    fn get_tx_command(&self) -> &mpsc::Sender<TimedInput> {
+        return &self.tx_command;
+    }
+
+    fn get_command_listener(&self) -> &thread::JoinHandle<()> {
+        return &self.command_listener;
+    }
+}
+
+
+impl ChatInterfaced for DemGcnC {
+    fn get_regex(&self) -> &Regex {
+        return &self.re;
+    }
+}
+
+impl DemGcnC {
+    pub fn new(vjoy_device_number: u32) -> Result<Self, u8> {
+        let controller = match virtc::VGcnC::new(vjoy_device_number) {
+            Ok(controller) => controller,
+            Err(_) => return Err(1)
+        };
+
+        let arc_controller = Arc::new(controller);
+
+        let (tx_command, rx_command) = mpsc::channel();
+
+        //@todo these mutexes owning nothing is indicative of unrustic code
+        let button_guards = [Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
+                             Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
+                             Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
+                             Mutex::new(()), Mutex::new(())];
+
+        // Spawn a command listener
+        let arc_controller_command_handler = arc_controller.clone();
+        let command_listener = thread::spawn(move || {
+            let mut queued_commands: Vec<TimedInput> = Vec::new();
+            let mut active_joystick_commands: Vec<TimedInput> = Vec::new();
+            // There is no active button commands vector because closures
+
+            loop {
+                // Get all commands from the mpsc receiver
+                loop {
+                    match rx_command.try_recv() {
+                        Ok(command) => {
+                            queued_commands.push(command);
+                        },
+                        _ => { break; }
+                    }
+                }
+
+                let time_now = time::get_time();
+
+                // Move all queued joystick commands whose time it is into the active joystick command list
+                // Try acting on all queued button commands whose time it is
+                let mut queued_commands_fresh: Vec<TimedInput> = Vec::new();
+                for command in queued_commands.iter() {
+                    if command.start_time <= time_now {
+                        match command.command.clone() {
+                            virtc::Input::Axis(_, _) => {
+                                active_joystick_commands.push(command.clone());
+                            }
+                            virtc::Input::Button(name, _) => {
+                                // Is a button in a press-release cycle? If so, ignore vote
+                                // Otherwise, hold the button for as long as the command specified,
+                                // then release it indefinitely but for at least 0.0498 seconds
+                                // (3 frames, at 60fps)
+
+                                let button_guard_index = get_button_guard_index(&name);
+
+                                match button_guards[button_guard_index].try_lock() {
+                                    Ok(_) => {
+                                        let closure_controller = arc_controller_command_handler.clone();
+                                        let closure_button_name = name.clone();
+
+                                        let myclone = command.clone();
+                                        thread::spawn(move || {
+                                            let command1 = virtc::Input::Button(closure_button_name.clone(), true);
+                                            closure_controller.set_input(&command1);
+                                            thread::sleep_ms(myclone.duration.num_milliseconds() as u32);
+                                            let command2 = virtc::Input::Button(closure_button_name.clone(), false);
+                                            closure_controller.set_input(&command2);
+                                            thread::sleep_ms(34);
+                                        });
+
+                                    },
+                                    _ => ()
+                                }
+
+                            }
+                        }
+                    } else {
+                        queued_commands_fresh.push(command.clone());
+                    }
+                }
+                queued_commands = queued_commands_fresh;
+
+                // Prune old commands from the active list
+                let mut active_joystick_commands_fresh: Vec<TimedInput> = Vec::new();
+                for command in active_joystick_commands.iter() {
+                    if command.start_time + command.duration > time_now {
+                        active_joystick_commands_fresh.push(command.clone());
+                    }
+                }
+                active_joystick_commands = active_joystick_commands_fresh;
+
+                if !active_joystick_commands.is_empty() {
+                    // Get the average joystick direction
+                    //@todo use f64 for sums?
+                    let mut x_sum: f32 = 0.0;
+                    let mut y_sum: f32 = 0.0;
+                    let mut num_x_commands: u16 = 0;
+                    let mut num_y_commands: u16 = 0;
+
+                    // Loop over all commands
+                    for command in active_joystick_commands.iter() {
+                        match command.command.clone() {
+                            virtc::Input::Axis(name, strength) => {
+                                if name == "jx" {
+                                    x_sum += strength;
+                                    num_x_commands += 1;
+                                } else if name == "jy" {
+                                    y_sum += strength;
+                                    num_y_commands += 1;
+                                }
+
+                            },
+                            _ => panic!("How did something besides an axis command get here?")
+                        }
+                    }
+
+                    let x_avg = (x_sum / num_x_commands as f32) as f32;
+                    let y_avg = (y_sum / num_y_commands as f32) as f32;
+
+                    let x_command = virtc::Input::Axis(String::from("jx"), x_avg);
+                    let y_command = virtc::Input::Axis(String::from("jy"), y_avg);
+                    arc_controller_command_handler.set_input(&x_command);
+                    arc_controller_command_handler.set_input(&y_command);
+                } else {
+                    let x_command = virtc::Input::Axis(String::from("jx"), 0.0);
+                    let y_command = virtc::Input::Axis(String::from("jy"), 0.0);
+                    arc_controller_command_handler.set_input(&x_command);
+                    arc_controller_command_handler.set_input(&y_command);
+                }
+
+                thread::sleep_ms(1);
+            }
+        });
+
+        Ok( DemGcnC { controller: arc_controller,
+               re: Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!\.]))\s*").unwrap(),
+               tx_command: tx_command,
+               command_listener: command_listener } )
+    }
+}
