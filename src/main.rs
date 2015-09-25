@@ -15,7 +15,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Write;
 
-use demc::{DemN64C, DemGcnC, ChatInterfaced};
+use demc::{DemGcnC, ChatInterfaced};
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";

@@ -19,7 +19,7 @@ const MAX_DURATION_PER_LINE: u32 = 30000;
 const MILLISECONDS_PER_FRAME: u32 = 34;
 
 
-fn get_button_guard_index(name: &str) -> usize {
+fn get_button_guard_index_n64(name: &str) -> usize {
     // Zero-based indexing of enum values
     //@todo this really shouldn't be necessary
     match name {
@@ -37,6 +37,26 @@ fn get_button_guard_index(name: &str) -> usize {
         "ddown" => 11,
         "dleft" => 12,
         "dright" => 13,
+        _ => panic!("uhhh")
+    }
+}
+
+fn get_button_guard_index_gcn(name: &str) -> usize {
+    // Zero-based indexing of enum values
+    //@todo this really shouldn't be necessary
+    match name {
+        "a" => 0,
+        "b" => 1,
+        "x" => 2,
+        "y" => 3,
+        "z" => 4,
+        "l" => 5,
+        "r" => 6,
+        "start" => 7,
+        "dup" => 8,
+        "ddown" => 9,
+        "dleft" => 10,
+        "dright" => 11,
         _ => panic!("uhhh")
     }
 }
@@ -357,7 +377,7 @@ impl DemN64C {
                                 // then release it indefinitely but for at least 0.0498 seconds
                                 // (3 frames, at 60fps)
 
-                                let button_guard_index = get_button_guard_index(&name);
+                                let button_guard_index = get_button_guard_index_n64(&name);
                                 
                                 match button_guards[button_guard_index].try_lock() {
                                     Ok(_) => {
@@ -508,8 +528,7 @@ impl DemGcnC {
         //@todo these mutexes owning nothing is indicative of unrustic code
         let button_guards = [Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
                              Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
-                             Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
-                             Mutex::new(()), Mutex::new(())];
+                             Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(())];
 
         // Spawn a command listener
         let arc_controller_command_handler = arc_controller.clone();
@@ -546,7 +565,7 @@ impl DemGcnC {
                                 // then release it indefinitely but for at least 0.0498 seconds
                                 // (3 frames, at 60fps)
 
-                                let button_guard_index = get_button_guard_index(&name);
+                                let button_guard_index = get_button_guard_index_gcn(&name);
 
                                 match button_guards[button_guard_index].try_lock() {
                                     Ok(_) => {
@@ -628,7 +647,7 @@ impl DemGcnC {
         });
 
         Ok( DemGcnC { controller: arc_controller,
-               re: Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!\.]))\s*").unwrap(),
+               re: Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|x|y|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!\.]))\s*").unwrap(),
                tx_command: tx_command,
                command_listener: command_listener } )
     }
