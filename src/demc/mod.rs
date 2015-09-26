@@ -12,6 +12,7 @@ use regex::Regex;
 pub mod virtc;
 use demc::virtc::AcceptsInputs;
 
+
 const MAX_JOYSTICK_COMMAND_DURATION: u32 = 5000;
 const MAX_BUTTON_COMMAND_DURATION: u32 = 5000;
 const MAX_B_BUTTON_COMMAND_DURATION: u32 = 30000;
@@ -116,8 +117,8 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 }
             }
 
-            // Store the last capture's ending position - after iterating over all captures, we'll make sure the last one
-            // ended
+            // Store the last capture's ending position - after iterating over all captures, we'll make sure the last
+            // one ended
             final_cap_end = cap_end;
 
             // Our regex should match on exactly one of three groups: "joystick", "button", or "delay"
@@ -182,17 +183,12 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 }
 
                 let time_now = get_time();
-                let (x, y) = joystick_dirstr_to_xy_str(joystick_direction, joystick_strength).unwrap();
-                let command_x = TimedInput { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
-                                                    duration: Duration::milliseconds(joystick_duration as i64),
-                                                    command: virtc::Input::Axis(String::from("jx"), x)};
-                let command_y = TimedInput { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
-                                                    duration: Duration::milliseconds(joystick_duration as i64),
-                                                    command: virtc::Input::Axis(String::from("jy"), y)};
-                res.push(command_x);
-                res.push(command_y.clone());
+                let command = TimedInput { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
+                                           duration: Duration::milliseconds(joystick_duration as i64),
+                                           command: virtc::Input::Joystick(String::from("control_stick"), joystick_direction, joystick_strength) };
+                res.push(command.clone());
 
-                last_command = Some(command_y);
+                last_command = Some(command);
             } else if let Some(_) = cap.name("button") {
                 match last_command {
                     Some(command) => {
@@ -463,16 +459,6 @@ impl DemN64C {
                tx_command: tx_command,
                command_listener: command_listener } )
     }
-}
-
-fn joystick_dirstr_to_xy_str(direction: u16, strength: f32) -> Result<(f32, f32), &'static str> {
-    // Convert direction from degrees to radians
-    let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
-
-    let x_strength = direction_rad.cos() * strength;
-    let y_strength = direction_rad.sin() * strength;
-
-    Ok(( x_strength, y_strength))
 }
 
 

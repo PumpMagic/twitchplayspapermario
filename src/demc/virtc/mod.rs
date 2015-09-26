@@ -9,12 +9,14 @@ extern crate std;
 use std::collections::HashMap;
 
 
+// IsVJoyDevice says that the implementor is a representation of a vJoy virtual joystick
 trait IsVJoyDevice {
     fn get_vjoy_device_number(&self) -> u32;
 
+    // Convenience function for claiming and resetting the vJoy device with the given number
     // Err(1): vJoy isn't enabled
     // Err(2): Unable to claim vjoystick
-    // Err(3): unable to reset vjoystick
+    // Err(3): Unable to reset vjoystick
     fn claim_and_reset(&self) -> Result<(), u8> {
         if vjoy_rust::is_vjoy_enabled() == false {
             return Err(1);
@@ -32,10 +34,12 @@ trait IsVJoyDevice {
     }
 }
 
+// HasAxes says that the implementor contains at least one vJoy virtual axis
 trait HasAxes: IsVJoyDevice {
-    // Values are HID constant - min - max triplets
+    // Map of axis names to (vJoy axis HID constant, minimum value, maximum value) triplets
     fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)>;
 
+    // Convenience function for getting the vJoy axis HID constant of the axis with given name
     fn get_axis_hid(&self, name: &String) -> Option<u32> {
         match self.get_axis_map().get(name) {
             Some(&(hid, _, _)) => Some(hid),
@@ -43,6 +47,7 @@ trait HasAxes: IsVJoyDevice {
         }
     }
 
+    // Convenience function for getting the vJoy axis minimum of the axis with given name
     fn get_axis_min(&self, name: &String) -> Option<i64> {
         match self.get_axis_map().get(name) {
             Some(&(_, min, _)) => Some(min),
@@ -50,6 +55,7 @@ trait HasAxes: IsVJoyDevice {
         }
     }
 
+    // Convenience function for getting the vJoy axis maximum of the axis with given name
     fn get_axis_max(&self, name: &String) -> Option<i64> {
         match self.get_axis_map().get(name) {
             Some(&(_, _, max)) => Some(max),
@@ -57,18 +63,40 @@ trait HasAxes: IsVJoyDevice {
         }
     }
 
+    // Get the current value of the axis with given name
     fn get_axis_state(&self, name: &String) -> Option<i64>;
 
-    //@todo change this to raw value, not percent
-    fn set_axis_state(&self, name: &String, strength: f32) -> Result<(), &'static str> {
-        let hid = self.get_axis_hid(name).unwrap();
+    // Set the value of the axis with given name
+    // This function takes in a strength argument rather than a raw value so that callers don't need to be aware of
+    // the relevant axis' value range. strength must be a number in the range [-1.0, 1.0]
+    // Err(1): strength argument invalid
+    // Err(2): axis HID not available
+    // Err(3): axis min or max not available
+    // Err(4): setting axis value failed
+    fn set_axis_state(&self, name: &String, strength: f32) -> Result<(), u8> {
+        if strength < -1.0 || strength > 1.0 {
+            return Err(1);
+        }
 
-        let mid: i64 = ((self.get_axis_max(name).unwrap() - self.get_axis_min(&name).unwrap())/2) as i64;
+        let hid = match self.get_axis_hid(name) {
+            Some(hid) => hid,
+            None => return Err(2)
+        };
+
+        let (min, max) = match self.get_axis_min(name) {
+            Some(min) => match self.get_axis_max(name) {
+                Some(max) => (min, max),
+                None => return Err(3)
+            },
+            None => return Err(3)
+        };
+
+        let mid: i64 = ((max - min)/2) as i64;
         let val = mid + (strength * (mid as f32)) as i64;
 
         match vjoy_rust::set_vjoystick_axis(self.get_vjoy_device_number(), hid, val) {
             Ok(_) => Ok(()),
-            Err(_) => Err("Unable to set axis")
+            Err(_) => Err(4)
         }
     }
 
@@ -77,6 +105,46 @@ trait HasAxes: IsVJoyDevice {
             if vjoy_rust::get_vjoystick_axis_exists(self.get_vjoy_device_number(), axis_index)== false {
                 return Err(());
             }
+        }
+
+        Ok(())
+    }
+}
+
+// HasJoysticks says that the implementor has at least one joystick, a two-dimensional analog input that is two axes
+trait HasJoysticks: HasAxes {
+    // Map of joystick names to (axis, axis) tuples
+    fn get_joystick_map(&self) -> &HashMap<String, (String, String)>;
+
+    fn get_joystick_axis_names(&self, name: &String) -> Option<&(String, String)> {
+        match self.get_joystick_map().get(name) {
+            Some(tuple) => Some(tuple),
+            None => None
+        }
+    }
+
+    // Set the joystick state, given a direction in degrees and a strength in the range [-1.0, 1.0]
+    // Err(1): Unable to find joystick with given name
+    // Err(2): Unable to set axis states
+    fn set_joystick_state(&self, joystick: &String, direction: u16, strength: f32) -> Result<(), u8> {
+        let (x, y): (&String, &String) = match self.get_joystick_axis_names(joystick) {
+            Some(&(x, y)) => (x, y),
+            None => return Err(1)
+        };
+
+        // Convert direction from degrees to radians
+        let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
+
+        let x_strength = direction_rad.cos() * strength;
+        let y_strength = direction_rad.sin() * strength;
+
+        match self.set_axis_state(x, x_strength) {
+            Ok(()) => (),
+            Err(_) => return Err(2)
+        }
+        match self.set_axis_state(y, y_strength) {
+            Ok(()) => (),
+            Err(_) => return Err(2)
         }
 
         Ok(())
@@ -132,13 +200,13 @@ trait HasAxesAndButtons: HasAxes + HasButtons {
 
 #[derive(Clone)]
 pub enum Input {
-    Axis(String, f32),
+    Joystick(String, u16, f32),
     Button(String, bool)
 }
-pub trait AcceptsInputs: HasAxesAndButtons {
+pub trait AcceptsInputs: HasJoysticks + HasButtons{
     fn set_input(&self, input: &Input) -> Result<(), &'static str> {
         match input.clone() {
-            Input::Axis(name, strength) => self.set_axis_state(&name, strength),
+            Input::Joystick(name, direction, strength) => self.set_joystick_state(&name, direction, strength),
             Input::Button(name, value) => self.set_button_state(&name, value)
         }
     }
@@ -148,6 +216,7 @@ pub trait AcceptsInputs: HasAxesAndButtons {
 //@todo track state
 pub struct VN64C {
     axes: HashMap<String, (u32, i64, i64)>,
+    joysticks: HashMap<String, (String, String)>,
     buttons: HashMap<String, u8>,
     vjoy_device_number: u32
 }
@@ -157,7 +226,6 @@ impl IsVJoyDevice for VN64C {
         return self.vjoy_device_number;
     }
 }
-
 impl HasAxes for VN64C {
     fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)> {
         return &self.axes;
@@ -167,7 +235,11 @@ impl HasAxes for VN64C {
         return Some(0); //@todo
     }
 }
-
+impl HasJoysticks for VN64C {
+    fn get_joystick_map(&self) -> &HashMap<String, (String, String)> {
+        return self.joysticks;
+    }
+}
 impl HasButtons for VN64C {
     fn get_button_map(&self) -> &HashMap<String, u8> {
         return &self.buttons;
@@ -177,9 +249,7 @@ impl HasButtons for VN64C {
         return Some(false);
     }
 }
-
 impl HasAxesAndButtons for VN64C {}
-
 impl AcceptsInputs for VN64C {}
 
 impl VN64C {
@@ -187,8 +257,8 @@ impl VN64C {
     // Err(2): vjoystick doesn't meet N64 controller requirements
     // Err(3): unable to claim and reset vjoystick
     pub fn new(vjoy_device_number: u32) -> Result<Self, u8> {
-        let (axes, buttons) = match get_n64_controller_hardware(vjoy_device_number) {
-            Ok((axes, buttons)) => (axes, buttons),
+        let (axes, joysticks, buttons) = match get_n64_controller_hardware(vjoy_device_number) {
+            Ok((axes, joysticks, buttons)) => (axes, buttons),
             Err(_) => return Err(1)
         };
 
@@ -206,7 +276,7 @@ impl VN64C {
     }
 }
 
-fn get_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, u8>), u8> {
+fn get_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, (String, String)>,HashMap<String, u8>), u8> {
     let mut axes = HashMap::new();
 
     let x_min = match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, 0x30) {
@@ -229,6 +299,9 @@ fn get_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<Strin
     axes.insert(String::from("x"), (0x30, x_min, x_max));
     axes.insert(String::from("y"), (0x31, y_min, y_max));
 
+    let mut joysticks = HashMap::new();
+    joysticks.insert(String::from("control_stick"), (String::from("x"), String::from("y")));
+
     let mut buttons = HashMap::new();
     buttons.insert(String::from("a"), 0x01);
     buttons.insert(String::from("b"), 0x02);
@@ -245,7 +318,7 @@ fn get_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<Strin
     buttons.insert(String::from("dleft"), 0x0d);
     buttons.insert(String::from("dright"), 0x0e);
 
-    Ok((axes, buttons))
+    Ok((axes, joysticks, buttons))
 }
 
 
