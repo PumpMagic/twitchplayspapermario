@@ -20,7 +20,7 @@ use demc::{DemGcnC, ChatInterfaced};
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
 const CHAT_LOG_PATH: &'static str = "chat.txt";
-const VJOY_DEVICE_NUMBER: u32 = 2;
+const VJOY_DEVICE_NUMBER: u32 = 1;
 
 
 

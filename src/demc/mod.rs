@@ -127,7 +127,7 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                     Some(command) => {
                         cumulative_delay += command.duration.num_milliseconds() as u32;
                         match command.command {
-                            virtc::Input::Axis(_, _) => {
+                            virtc::Input::Joystick(_, _, _) => {
                                 cumulative_delay += MILLISECONDS_PER_FRAME*2;
                             },
                             virtc::Input::Button(_, _) => {
@@ -193,7 +193,7 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 match last_command {
                     Some(command) => {
                         match command.command {
-                            virtc::Input::Axis(_, _) => {
+                            virtc::Input::Joystick(_, _, _) => {
                                 cumulative_delay += command.duration.num_milliseconds() as u32;
                                 if command.duration.num_milliseconds() >= MILLISECONDS_PER_FRAME as i64 {
                                     cumulative_delay -= MILLISECONDS_PER_FRAME;
@@ -296,6 +296,23 @@ pub trait ChatInterfaced: CommandedAsynchronously {
     }
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
 // A democratized virtual controller
 pub struct DemN64C {
     controller: Arc<virtc::VN64C>,
@@ -364,7 +381,7 @@ impl DemN64C {
                 for command in queued_commands.iter() {
                     if command.start_time <= time_now {
                         match command.command.clone() {
-                            virtc::Input::Axis(_, _) => {
+                            virtc::Input::Joystick(_, _, _) => {
                                 active_joystick_commands.push(command.clone());
                             }
                             virtc::Input::Button(name, _) => {
@@ -460,7 +477,7 @@ impl DemN64C {
                command_listener: command_listener } )
     }
 }
-
+*/
 
 
 
@@ -542,13 +559,13 @@ impl DemGcnC {
                 for command in queued_commands.iter() {
                     if command.start_time <= time_now {
                         match command.command.clone() {
-                            virtc::Input::Axis(_, _) => {
+                            virtc::Input::Joystick(_, _, _) => {
                                 active_joystick_commands.push(command.clone());
                             }
                             virtc::Input::Button(name, _) => {
                                 // Is a button in a press-release cycle? If so, ignore vote
                                 // Otherwise, hold the button for as long as the command specified,
-                                // then release it indefinitely but for at least 0.0498 seconds
+                                // then release it indefinitely but for at least 0.05 seconds
                                 // (3 frames, at 60fps)
 
                                 let button_guard_index = get_button_guard_index_gcn(&name);
@@ -571,7 +588,6 @@ impl DemGcnC {
                                     },
                                     _ => ()
                                 }
-
                             }
                         }
                     } else {
@@ -594,38 +610,35 @@ impl DemGcnC {
                     //@todo use f64 for sums?
                     let mut x_sum: f32 = 0.0;
                     let mut y_sum: f32 = 0.0;
-                    let mut num_x_commands: u16 = 0;
-                    let mut num_y_commands: u16 = 0;
+                    let mut num_commands: u16 = 0;
 
                     // Loop over all commands
                     for command in active_joystick_commands.iter() {
-                        match command.command.clone() {
-                            virtc::Input::Axis(name, strength) => {
-                                if name == "jx" {
-                                    x_sum += strength;
-                                    num_x_commands += 1;
-                                } else if name == "jy" {
-                                    y_sum += strength;
-                                    num_y_commands += 1;
-                                }
-
+                        match command.command {
+                            virtc::Input::Joystick(ref name, direction, strength) => {
+                                let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
+                                x_sum += direction_rad.cos() * strength;
+                                y_sum += direction_rad.sin() * strength;
+                                num_commands += 1;
                             },
-                            _ => panic!("How did something besides an axis command get here?")
+                            _ => panic!("How did something besides a joystick command get here?")
                         }
                     }
 
-                    let x_avg = (x_sum / num_x_commands as f32) as f32;
-                    let y_avg = (y_sum / num_y_commands as f32) as f32;
+                    let x_avg = (x_sum / num_commands as f32) as f32;
+                    let y_avg = (y_sum / num_commands as f32) as f32;
                     
-                    let x_command = virtc::Input::Axis(String::from("jx"), x_avg);
-                    let y_command = virtc::Input::Axis(String::from("jy"), y_avg);
-                    arc_controller_command_handler.set_input(&x_command);
-                    arc_controller_command_handler.set_input(&y_command);
+                    let direction_avg = (y_avg.atan2(x_avg) * (180 as f32) / std::f32::consts::PI) as u16;
+                    let strength_avg: f32 = (x_avg.abs() + y_avg.abs()); //@todo lazy, but... what we want?
+                    
+                    println!("x_avg: {} y_avg: {} atan2: {} direction: {} strength: {}", x_avg, y_avg, y_avg.atan2(x_avg), direction_avg, strength_avg);
+                    
+                    
+                    let command = virtc::Input::Joystick(String::from("control_stick"), direction_avg, strength_avg);
+                    arc_controller_command_handler.set_input(&command);
                 } else {
-                    let x_command = virtc::Input::Axis(String::from("jx"), 0.0);
-                    let y_command = virtc::Input::Axis(String::from("jy"), 0.0);
-                    arc_controller_command_handler.set_input(&x_command);
-                    arc_controller_command_handler.set_input(&y_command);
+                    let command = virtc::Input::Joystick(String::from("control_stick"), 0, 0.0);
+                    arc_controller_command_handler.set_input(&command);
                 }
 
                 thread::sleep_ms(1);

@@ -127,8 +127,8 @@ trait HasJoysticks: HasAxes {
     // Err(1): Unable to find joystick with given name
     // Err(2): Unable to set axis states
     fn set_joystick_state(&self, joystick: &String, direction: u16, strength: f32) -> Result<(), u8> {
-        let (x, y): (&String, &String) = match self.get_joystick_axis_names(joystick) {
-            Some(&(x, y)) => (x, y),
+        let (x, y) = match self.get_joystick_axis_names(joystick) {
+            Some(&(ref x, ref y)) => (x, y),
             None => return Err(1)
         };
 
@@ -138,11 +138,11 @@ trait HasJoysticks: HasAxes {
         let x_strength = direction_rad.cos() * strength;
         let y_strength = direction_rad.sin() * strength;
 
-        match self.set_axis_state(x, x_strength) {
+        match self.set_axis_state(&x, x_strength) {
             Ok(()) => (),
             Err(_) => return Err(2)
         }
-        match self.set_axis_state(y, y_strength) {
+        match self.set_axis_state(&y, y_strength) {
             Ok(()) => (),
             Err(_) => return Err(2)
         }
@@ -163,14 +163,15 @@ trait HasButtons: IsVJoyDevice {
 
     fn get_button_state(&self, name: &String) -> Option<bool>;
 
-    fn set_button_state(&self, name: &String, value: bool) -> Result<(), &'static str> {
+    // Err(1): Unable to set virtual joystick button
+    fn set_button_state(&self, name: &String, value: bool) -> Result<(), u8> {
         let index = self.get_button_index(name).unwrap();
 
         let valc = value as i32;
 
         match vjoy_rust::set_vjoystick_button(self.get_vjoy_device_number(), index, valc) {
             Ok(_) => Ok(()),
-            Err(_) => Err("Unable to set virtual joystick button")
+            Err(_) => Err(1)
         }
     }
 
@@ -204,7 +205,7 @@ pub enum Input {
     Button(String, bool)
 }
 pub trait AcceptsInputs: HasJoysticks + HasButtons{
-    fn set_input(&self, input: &Input) -> Result<(), &'static str> {
+    fn set_input(&self, input: &Input) -> Result<(), u8> {
         match input.clone() {
             Input::Joystick(name, direction, strength) => self.set_joystick_state(&name, direction, strength),
             Input::Button(name, value) => self.set_button_state(&name, value)
@@ -237,7 +238,7 @@ impl HasAxes for VN64C {
 }
 impl HasJoysticks for VN64C {
     fn get_joystick_map(&self) -> &HashMap<String, (String, String)> {
-        return self.joysticks;
+        return &self.joysticks;
     }
 }
 impl HasButtons for VN64C {
@@ -258,11 +259,11 @@ impl VN64C {
     // Err(3): unable to claim and reset vjoystick
     pub fn new(vjoy_device_number: u32) -> Result<Self, u8> {
         let (axes, joysticks, buttons) = match get_n64_controller_hardware(vjoy_device_number) {
-            Ok((axes, joysticks, buttons)) => (axes, buttons),
+            Ok((axes, joysticks, buttons)) => (axes, joysticks, buttons),
             Err(_) => return Err(1)
         };
 
-        let vn64c = VN64C { axes: axes, buttons: buttons, vjoy_device_number: vjoy_device_number };
+        let vn64c = VN64C { axes: axes, joysticks: joysticks, buttons: buttons, vjoy_device_number: vjoy_device_number };
 
         match vn64c.verify_vjoystick_compatibility() {
             Ok(_) => (),
@@ -325,6 +326,7 @@ fn get_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<Strin
 //@todo track state
 pub struct VGcnC {
     axes: HashMap<String, (u32, i64, i64)>,
+    joysticks: HashMap<String, (String, String)>,
     buttons: HashMap<String, u8>,
     vjoy_device_number: u32
 }
@@ -334,7 +336,6 @@ impl IsVJoyDevice for VGcnC {
         return self.vjoy_device_number;
     }
 }
-
 impl HasAxes for VGcnC {
     fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)> {
         return &self.axes;
@@ -344,7 +345,11 @@ impl HasAxes for VGcnC {
         return Some(0); //@todo
     }
 }
-
+impl HasJoysticks for VGcnC {
+    fn get_joystick_map(&self) -> &HashMap<String, (String, String)> {
+        return &self.joysticks;
+    }
+}
 impl HasButtons for VGcnC {
     fn get_button_map(&self) -> &HashMap<String, u8> {
         return &self.buttons;
@@ -354,22 +359,19 @@ impl HasButtons for VGcnC {
         return Some(false);
     }
 }
-
 impl HasAxesAndButtons for VGcnC {}
-
 impl AcceptsInputs for VGcnC {}
-
 impl VGcnC {
     // Err(1): unable to get GCN hardware
     // Err(2): vjoystick doesn't meet GCN controller requirements
     // Err(3): unable to claim and reset vjoystick
     pub fn new(vjoy_device_number: u32) -> Result<Self, u8> {
-        let (axes, buttons) = match get_gcn_controller_hardware(vjoy_device_number) {
-            Ok((axes, buttons)) => (axes, buttons),
+        let (axes, joysticks, buttons) = match get_gcn_controller_hardware(vjoy_device_number) {
+            Ok((axes, joysticks, buttons)) => (axes, joysticks, buttons),
             Err(_) => return Err(1)
         };
 
-        let vgcnc = VGcnC { axes: axes, buttons: buttons, vjoy_device_number: vjoy_device_number };
+        let vgcnc = VGcnC { axes: axes, joysticks: joysticks, buttons: buttons, vjoy_device_number: vjoy_device_number };
 
         match vgcnc.verify_vjoystick_compatibility() {
             Ok(_) => (),
@@ -384,7 +386,7 @@ impl VGcnC {
 }
 
 fn get_gcn_controller_hardware(vjoy_device_number: u32)
-        -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, u8>), u8>
+        -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, (String, String)>,HashMap<String, u8>), u8>
 {
     let mut axes = HashMap::new();
 
@@ -426,6 +428,10 @@ fn get_gcn_controller_hardware(vjoy_device_number: u32)
     axes.insert(String::from("jy"), (0x31, jy_min, jy_max));
     axes.insert(String::from("cx"), (0x33, cx_min, cx_max));
     axes.insert(String::from("cy"), (0x34, cy_min, cy_max));
+    
+    let mut joysticks = HashMap::new();
+    joysticks.insert(String::from("control_stick"), (String::from("jx"), String::from("jy")));
+    joysticks.insert(String::from("c_stick"), (String::from("cx"), String::from("cy")));
 
     let mut buttons = HashMap::new();
     buttons.insert(String::from("a"), 0x01);
@@ -441,5 +447,5 @@ fn get_gcn_controller_hardware(vjoy_device_number: u32)
     buttons.insert(String::from("dleft"), 0x0b);
     buttons.insert(String::from("dright"), 0x0c);
 
-    Ok((axes, buttons))
+    Ok((axes, joysticks, buttons))
 }
