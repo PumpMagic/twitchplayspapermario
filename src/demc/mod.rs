@@ -144,6 +144,7 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 // "joystick_duration_units" (optional; must be present if joystick_duration is)
                 let mut joystick_strength: f32 = 1.0;
                 let mut joystick_direction: u16 = 0;
+                let mut joystick_name = "";
                 let mut joystick_duration: u32 = 500;
                 if let Some(jscap) = cap.name("joystick_strength") {
                     match jscap.parse::<u8>() {
@@ -153,10 +154,14 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 }
                 if let Some(jdcap) = cap.name("joystick_direction") {
                     match jdcap {
-                        "up" => { joystick_direction = 90; },
-                        "down" => { joystick_direction = 270; },
-                        "left" => { joystick_direction = 180; },
-                        "right" => { joystick_direction = 0; },
+                        "cup" => { joystick_direction = 90; joystick_name = "c_stick"; },
+                        "cdown" => { joystick_direction = 270; joystick_name = "c_stick"; },
+                        "cleft" => { joystick_direction = 180; joystick_name = "c_stick"; },
+                        "cright" => { joystick_direction = 0; joystick_name = "c_stick"; },
+                        "up" => { joystick_direction = 90; joystick_name = "control_stick"; },
+                        "down" => { joystick_direction = 270; joystick_name = "control_stick"; },
+                        "left" => { joystick_direction = 180; joystick_name = "control_stick"; },
+                        "right" => { joystick_direction = 0; joystick_name = "control_stick"; },
                         _ => ()
                     }
                 } else {
@@ -185,7 +190,7 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 let time_now = get_time();
                 let command = TimedInput { start_time: time_now + Duration::milliseconds(cumulative_delay as i64),
                                            duration: Duration::milliseconds(joystick_duration as i64),
-                                           command: virtc::Input::Joystick(String::from("control_stick"), joystick_direction, joystick_strength) };
+                                           command: virtc::Input::Joystick(String::from(joystick_name), joystick_direction, joystick_strength) };
                 res.push(command.clone());
 
                 last_command = Some(command);
@@ -491,7 +496,6 @@ impl DemN64C {
 
 
 
-
 // A democratized virtual controller
 pub struct DemGcnC {
     controller: Arc<virtc::VGcnC>,
@@ -539,7 +543,7 @@ impl DemGcnC {
             let mut queued_commands: Vec<TimedInput> = Vec::new();
             let mut active_joystick_commands: Vec<TimedInput> = Vec::new();
             // There is no active button commands vector because closures
-
+            
             loop {
                 // Get all commands from the mpsc receiver
                 loop {
@@ -608,37 +612,75 @@ impl DemGcnC {
                 if !active_joystick_commands.is_empty() {
                     // Get the average joystick direction
                     //@todo use f64 for sums?
-                    let mut x_sum: f32 = 0.0;
-                    let mut y_sum: f32 = 0.0;
-                    let mut num_commands: u16 = 0;
+                    let mut jx_sum: f32 = 0.0;
+                    let mut jy_sum: f32 = 0.0;
+                    let mut num_j_commands: u16 = 0;
+                    let mut cx_sum: f32 = 0.0;
+                    let mut cy_sum: f32 = 0.0;
+                    let mut num_c_commands: u16 = 0;
 
                     // Loop over all commands
                     for command in active_joystick_commands.iter() {
                         match command.command {
                             virtc::Input::Joystick(ref name, direction, strength) => {
-                                let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
-                                x_sum += direction_rad.cos() * strength;
-                                y_sum += direction_rad.sin() * strength;
-                                num_commands += 1;
+                                if name == "control_stick" {
+                                    let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
+                                    jx_sum += direction_rad.cos() * strength;
+                                    jy_sum += direction_rad.sin() * strength;
+                                    num_j_commands += 1;
+                                } else {
+                                    let direction_rad: f32 = (direction as f32) * std::f32::consts::PI / 180.0;
+                                    cx_sum += direction_rad.cos() * strength;
+                                    cy_sum += direction_rad.sin() * strength;
+                                    num_c_commands += 1;                                
+                                }
                             },
-                            _ => panic!("How did something besides a joystick command get here?")
+                            _ => panic!("How did something besides a joystick or cstick command get here?")
                         }
                     }
 
-                    let x_avg = (x_sum / num_commands as f32) as f32;
-                    let y_avg = (y_sum / num_commands as f32) as f32;
+                    let jx_avg = (jx_sum / num_j_commands as f32) as f32;
+                    let jy_avg = (jy_sum / num_j_commands as f32) as f32;
+                    let cx_avg = (cx_sum / num_c_commands as f32) as f32;
+                    let cy_avg = (cy_sum / num_c_commands as f32) as f32;
                     
-                    let direction_avg = (y_avg.atan2(x_avg) * (180 as f32) / std::f32::consts::PI) as u16;
-                    let strength_avg: f32 = (x_avg.abs() + y_avg.abs()); //@todo lazy, but... what we want?
+                    let mut j_direction_avg_rad = jy_avg.atan2(jx_avg);
+                    if j_direction_avg_rad < 0.0 {
+                        j_direction_avg_rad = j_direction_avg_rad + ((2.0*std::f32::consts::PI) as f32);
+                    }
+                    let mut c_direction_avg_rad = cy_avg.atan2(cx_avg);
+                    if c_direction_avg_rad < 0.0 {
+                        c_direction_avg_rad = c_direction_avg_rad + ((2.0*std::f32::consts::PI) as f32);
+                    }
                     
-                    println!("x_avg: {} y_avg: {} atan2: {} direction: {} strength: {}", x_avg, y_avg, y_avg.atan2(x_avg), direction_avg, strength_avg);
+                    let j_direction_avg = (j_direction_avg_rad * 180.0 / std::f32::consts::PI) as u16;
+                    let mut j_strength_avg: f32 = jx_avg.abs() + jy_avg.abs(); //@todo lazy, but... what we want?
+                    if j_strength_avg > 1.0 {
+                        j_strength_avg = 1.0;
+                    }
+                    let c_direction_avg = (c_direction_avg_rad * 180.0 / std::f32::consts::PI) as u16;
+                    let mut c_strength_avg: f32 = cx_avg.abs() + cy_avg.abs(); //@todo lazy, but... what we want?
+                    if c_strength_avg > 1.0 {
+                        c_strength_avg = 1.0;
+                    }
                     
-                    
-                    let command = virtc::Input::Joystick(String::from("control_stick"), direction_avg, strength_avg);
-                    arc_controller_command_handler.set_input(&command);
+                    let j_command = if num_j_commands > 0 {
+                        virtc::Input::Joystick(String::from("control_stick"), j_direction_avg, j_strength_avg)
+                    } else {
+                        virtc::Input::Joystick(String::from("control_stick"), 0, 0.0)
+                    };
+                    let c_command = if num_c_commands > 0 {
+                        virtc::Input::Joystick(String::from("c_stick"), c_direction_avg, c_strength_avg)
+                    } else {
+                        virtc::Input::Joystick(String::from("c_stick"), 0, 0.0)
+                    };
+                    arc_controller_command_handler.set_input(&j_command);
+                    arc_controller_command_handler.set_input(&c_command);
                 } else {
-                    let command = virtc::Input::Joystick(String::from("control_stick"), 0, 0.0);
-                    arc_controller_command_handler.set_input(&command);
+                    let j_command = virtc::Input::Joystick(String::from("control_stick"), 0, 0.0);
+                    let c_command = virtc::Input::Joystick(String::from("c_stick"), 0, 0.0);
+                    arc_controller_command_handler.set_input(&j_command);
+                    arc_controller_command_handler.set_input(&c_command);
                 }
 
                 thread::sleep_ms(1);
@@ -646,7 +688,7 @@ impl DemGcnC {
         });
 
         Ok( DemGcnC { controller: arc_controller,
-               re: Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|cup|cdown|cleft|cright|dup|ddown|dleft|dright|a|b|x|y|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!\.]))\s*").unwrap(),
+               re: Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>cup|cdown|cleft|cright|up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|dup|ddown|dleft|dright|a|b|x|y|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!\.]))\s*").unwrap(),
                tx_command: tx_command,
                command_listener: command_listener } )
     }

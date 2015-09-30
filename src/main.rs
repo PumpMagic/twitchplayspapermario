@@ -9,7 +9,6 @@ extern crate regex;
 extern crate toml;
 extern crate time;
 
-use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Write;
