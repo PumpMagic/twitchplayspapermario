@@ -35,36 +35,49 @@ trait IsVJoyDevice {
 }
 
 // HasAxes says that the implementor contains at least one vJoy virtual axis
-trait HasAxes: IsVJoyDevice {
+//@todo separate mins and maxes into their own maps and initialize those locally so that user libs don't need to
+trait SupportsAxes: IsVJoyDevice {
     // Map of axis names to (vJoy axis HID constant, minimum value, maximum value) triplets
-    fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)>;
+    fn get_axis_map(&self) -> Option<&HashMap<String, (u32, i64, i64)>>;
 
     // Convenience function for getting the vJoy axis HID constant of the axis with given name
     fn get_axis_hid(&self, name: &String) -> Option<u32> {
-        match self.get_axis_map().get(name) {
-            Some(&(hid, _, _)) => Some(hid),
+        match self.get_axis_map() {
+            Some(axis_map) => match axis_map.get(name) {
+                Some(&(hid, _, _)) => Some(hid),
+                None => None
+            },
             None => None
         }
     }
 
     // Convenience function for getting the vJoy axis minimum of the axis with given name
     fn get_axis_min(&self, name: &String) -> Option<i64> {
-        match self.get_axis_map().get(name) {
-            Some(&(_, min, _)) => Some(min),
+        match self.get_axis_map() {
+            Some(axis_map) => match axis_map.get(name) {
+                Some(&(_, min, _)) => Some(min),
+                None => None
+            },
             None => None
         }
     }
 
     // Convenience function for getting the vJoy axis maximum of the axis with given name
     fn get_axis_max(&self, name: &String) -> Option<i64> {
-        match self.get_axis_map().get(name) {
-            Some(&(_, _, max)) => Some(max),
+        match self.get_axis_map() {
+            Some(axis_map) => match axis_map.get(name) {
+                Some(&(_, _, max)) => Some(max),
+                None => None
+            },
             None => None
         }
     }
 
     // Get the current value of the axis with given name
-    fn get_axis_state(&self, name: &String) -> Option<i64>;
+    //@todo
+    fn get_axis_state(&self, name: &String) -> Option<i64> {
+        return Some(0);
+    }
 
     // Set the value of the axis with given name
     // This function takes in a strength argument rather than a raw value so that callers don't need to be aware of
@@ -101,24 +114,32 @@ trait HasAxes: IsVJoyDevice {
     }
 
     fn verify_vjoystick_axis_compatibility(&self) -> Result<(), ()> {
-        for (_, &(axis_index, _, _)) in self.get_axis_map() {
-            if vjoy_rust::get_vjoystick_axis_exists(self.get_vjoy_device_number(), axis_index)== false {
-                return Err(());
-            }
+        match self.get_axis_map() {
+            Some(map) => {
+                for (_, &(axis_index, _, _)) in map {
+                    if vjoy_rust::get_vjoystick_axis_exists(self.get_vjoy_device_number(), axis_index)== false {
+                        return Err(());
+                    }
+                }
+            },
+            None => { return Ok(()); }
         }
-
+        
         Ok(())
     }
 }
 
 // HasJoysticks says that the implementor has at least one joystick, a two-dimensional analog input that is two axes
-trait HasJoysticks: HasAxes {
+trait SupportsJoysticks: SupportsAxes {
     // Map of joystick names to (axis, axis) tuples
-    fn get_joystick_map(&self) -> &HashMap<String, (String, String)>;
+    fn get_joystick_map(&self) -> Option<&HashMap<String, (String, String)>>;
 
     fn get_joystick_axis_names(&self, name: &String) -> Option<&(String, String)> {
-        match self.get_joystick_map().get(name) {
-            Some(tuple) => Some(tuple),
+        match self.get_joystick_map() {
+            Some(joystick_map) => match joystick_map.get(name) {
+                Some(tuple) => Some(tuple),
+                None => None
+            },
             None => None
         }
     }
@@ -151,20 +172,27 @@ trait HasJoysticks: HasAxes {
     }
 }
 
-trait HasButtons: IsVJoyDevice {
-    fn get_button_map(&self) -> &HashMap<String, u8>;
+trait SupportsButtons: IsVJoyDevice {
+    fn get_button_map(&self) -> Option<&HashMap<String, u8>>;
 
     fn get_button_index(&self, name: &String) -> Option<u8> {
-        match self.get_button_map().get(name) {
-            Some(index) => Some(*index),
+        match self.get_button_map() {
+            Some(button_map) => match button_map.get(name) {
+                Some(index) => Some(*index),
+                None => None
+            },
             None => None
         }
     }
-
-    fn get_button_state(&self, name: &String) -> Option<bool>;
+    
+    //@todo
+    fn get_button_state(&self, name: &String) -> Option<bool> {
+        return Some(false);
+    }
 
     // Err(1): Unable to set virtual joystick button
     fn set_button_state(&self, name: &String, value: bool) -> Result<(), u8> {
+        //@todo unwrap here
         let index = self.get_button_index(name).unwrap();
 
         let valc = value as i32;
@@ -175,17 +203,21 @@ trait HasButtons: IsVJoyDevice {
         }
     }
 
-    fn verify_vjoystick_button_compatibility(&self) -> Result<(), ()>
-    {
-        if (vjoy_rust::get_vjoystick_button_count(self.get_vjoy_device_number()) as usize) < self.get_button_map().len() {
-            return Err(());
+    fn verify_vjoystick_button_compatibility(&self) -> Result<(), ()> {
+        match self.get_button_map() {
+            Some(map) => {
+                if (vjoy_rust::get_vjoystick_button_count(self.get_vjoy_device_number()) as usize) < map.len() {
+                    return Err(());
+                }
+            },
+            None => { return Ok(()); }
         }
-
+        
         Ok(())
     }
 }
 
-trait HasAxesAndButtons: HasAxes + HasButtons {
+trait SupportsAxesAndButtons: SupportsAxes + SupportsButtons {
     fn verify_vjoystick_compatibility(&self) -> Result<(), ()> {
         match self.verify_vjoystick_axis_compatibility() {
             Ok(_) => (),
@@ -204,7 +236,7 @@ pub enum Input {
     Joystick(String, u16, f32),
     Button(String, bool)
 }
-pub trait AcceptsInputs: HasJoysticks + HasButtons{
+pub trait AcceptsInputs: SupportsJoysticks + SupportsButtons{
     fn set_input(&self, input: &Input) -> Result<(), u8> {
         match input.clone() {
             Input::Joystick(name, direction, strength) => self.set_joystick_state(&name, direction, strength),
@@ -215,69 +247,70 @@ pub trait AcceptsInputs: HasJoysticks + HasButtons{
 
 
 //@todo track state
-pub struct VN64C {
-    axes: HashMap<String, (u32, i64, i64)>,
-    joysticks: HashMap<String, (String, String)>,
-    buttons: HashMap<String, u8>,
+pub struct VirtC {
+    axes: Option<HashMap<String, (u32, i64, i64)>>,
+    joysticks: Option<HashMap<String, (String, String)>>,
+    buttons: Option<HashMap<String, u8>>,
     vjoy_device_number: u32
 }
 
-impl IsVJoyDevice for VN64C {
+impl IsVJoyDevice for VirtC {
     fn get_vjoy_device_number(&self) -> u32 {
         return self.vjoy_device_number;
     }
 }
-impl HasAxes for VN64C {
-    fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)> {
-        return &self.axes;
-    }
-
-    fn get_axis_state(&self, name: &String) -> Option<i64> {
-        return Some(0); //@todo
-    }
-}
-impl HasJoysticks for VN64C {
-    fn get_joystick_map(&self) -> &HashMap<String, (String, String)> {
-        return &self.joysticks;
+impl SupportsAxes for VirtC {
+    fn get_axis_map(&self) -> Option<&HashMap<String, (u32, i64, i64)>> {
+        match self.axes {
+            Some(ref axes) => Some(axes),
+            None => None
+        }
     }
 }
-impl HasButtons for VN64C {
-    fn get_button_map(&self) -> &HashMap<String, u8> {
-        return &self.buttons;
-    }
-
-    fn get_button_state(&self, name: &String) -> Option<bool> {
-        return Some(false);
+impl SupportsJoysticks for VirtC {
+    fn get_joystick_map(&self) -> Option<&HashMap<String, (String, String)>> {
+        match self.joysticks {
+            Some(ref joysticks) => Some(joysticks),
+            None => None
+        }
     }
 }
-impl HasAxesAndButtons for VN64C {}
-impl AcceptsInputs for VN64C {}
+impl SupportsButtons for VirtC {
+    fn get_button_map(&self) -> Option<&HashMap<String, u8>> {
+        match self.buttons {
+            Some(ref buttons) => Some(buttons),
+            None => None
+        }
+    }
+}
+impl SupportsAxesAndButtons for VirtC {}
+impl AcceptsInputs for VirtC {}
 
-impl VN64C {
+impl VirtC {
     // Err(1): unable to get N64 hardware
     // Err(2): vjoystick doesn't meet N64 controller requirements
     // Err(3): unable to claim and reset vjoystick
-    pub fn new(vjoy_device_number: u32) -> Result<Self, u8> {
-        let (axes, joysticks, buttons) = match get_n64_controller_hardware(vjoy_device_number) {
-            Ok((axes, joysticks, buttons)) => (axes, joysticks, buttons),
-            Err(_) => return Err(1)
-        };
+    pub fn new(vjoy_device_number: u32,
+               axes: Option<HashMap<String, (u32, i64, i64)>>,
+               joysticks: Option<HashMap<String, (String, String)>>,
+               buttons: Option<HashMap<String, u8>>)
+                    -> Result<Self, u8>
+    {
+        let virtc = VirtC { axes: axes, joysticks: joysticks, buttons: buttons, vjoy_device_number: vjoy_device_number };
 
-        let vn64c = VN64C { axes: axes, joysticks: joysticks, buttons: buttons, vjoy_device_number: vjoy_device_number };
-
-        match vn64c.verify_vjoystick_compatibility() {
+        match virtc.verify_vjoystick_compatibility() {
             Ok(_) => (),
             Err(_) => return Err(2)
         }
 
-        match vn64c.claim_and_reset() {
-            Ok(_) => Ok(vn64c),
+        match virtc.claim_and_reset() {
+            Ok(_) => Ok(virtc),
             Err(_) => Err(3)
         }
     }
 }
 
-fn get_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, (String, String)>,HashMap<String, u8>), u8> {
+pub fn sample_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, (String, String)>, HashMap<String, u8>), u8> {
     let mut axes = HashMap::new();
 
     let x_min = match vjoy_rust::get_vjoystick_axis_min(vjoy_device_number, 0x30) {
@@ -322,70 +355,7 @@ fn get_n64_controller_hardware(vjoy_device_number: u32) -> Result<(HashMap<Strin
     Ok((axes, joysticks, buttons))
 }
 
-
-//@todo track state
-pub struct VGcnC {
-    axes: HashMap<String, (u32, i64, i64)>,
-    joysticks: HashMap<String, (String, String)>,
-    buttons: HashMap<String, u8>,
-    vjoy_device_number: u32
-}
-
-impl IsVJoyDevice for VGcnC {
-    fn get_vjoy_device_number(&self) -> u32 {
-        return self.vjoy_device_number;
-    }
-}
-impl HasAxes for VGcnC {
-    fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)> {
-        return &self.axes;
-    }
-
-    fn get_axis_state(&self, name: &String) -> Option<i64> {
-        return Some(0); //@todo
-    }
-}
-impl HasJoysticks for VGcnC {
-    fn get_joystick_map(&self) -> &HashMap<String, (String, String)> {
-        return &self.joysticks;
-    }
-}
-impl HasButtons for VGcnC {
-    fn get_button_map(&self) -> &HashMap<String, u8> {
-        return &self.buttons;
-    }
-
-    fn get_button_state(&self, name: &String) -> Option<bool> {
-        return Some(false);
-    }
-}
-impl HasAxesAndButtons for VGcnC {}
-impl AcceptsInputs for VGcnC {}
-impl VGcnC {
-    // Err(1): unable to get GCN hardware
-    // Err(2): vjoystick doesn't meet GCN controller requirements
-    // Err(3): unable to claim and reset vjoystick
-    pub fn new(vjoy_device_number: u32) -> Result<Self, u8> {
-        let (axes, joysticks, buttons) = match get_gcn_controller_hardware(vjoy_device_number) {
-            Ok((axes, joysticks, buttons)) => (axes, joysticks, buttons),
-            Err(_) => return Err(1)
-        };
-
-        let vgcnc = VGcnC { axes: axes, joysticks: joysticks, buttons: buttons, vjoy_device_number: vjoy_device_number };
-
-        match vgcnc.verify_vjoystick_compatibility() {
-            Ok(_) => (),
-            Err(_) => return Err(2)
-        }
-
-        match vgcnc.claim_and_reset() {
-            Ok(_) => Ok(vgcnc),
-            Err(_) => Err(3)
-        }
-    }
-}
-
-fn get_gcn_controller_hardware(vjoy_device_number: u32)
+pub fn sample_gcn_controller_hardware(vjoy_device_number: u32)
         -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, (String, String)>,HashMap<String, u8>), u8>
 {
     let mut axes = HashMap::new();
