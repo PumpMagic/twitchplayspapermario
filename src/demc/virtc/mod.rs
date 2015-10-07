@@ -211,7 +211,7 @@ pub enum Input {
     Joystick(String, u16, f32),
     Button(String, bool)
 }
-pub trait AcceptsInputs: HasJoysticks + HasButtons{
+pub trait AcceptsInputs: HasJoysticks + HasButtons {
     fn set_input(&self, input: &Input) -> Result<(), u8> {
         match input.clone() {
             Input::Joystick(name, direction, strength) => self.set_joystick_state(&name, direction, strength),

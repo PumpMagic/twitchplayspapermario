@@ -21,7 +21,9 @@ const MAX_JOYSTICK_COMMAND_DURATION: u32 = 5000;
 const MAX_BUTTON_COMMAND_DURATION: u32 = 5000;
 const MAX_B_BUTTON_COMMAND_DURATION: u32 = 30000;
 const MAX_DURATION_PER_LINE: u32 = 30000;
-const MILLISECONDS_PER_FRAME: u32 = 34;
+const MILLISECONDS_PER_FRAME: u32 = 17;
+const MILLISECONDS_PER_SECOND: u32 = 1000;
+const MILLISECONDS_PER_DOT: u32 = 250;
 
 
 fn get_button_guard_index_n64(name: &str) -> usize {
@@ -149,7 +151,7 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 let mut joystick_strength: f32 = 1.0;
                 let mut joystick_direction: u16 = 0;
                 let mut joystick_name = "";
-                let mut joystick_duration: u32 = 500;
+                let mut joystick_duration: u32 = MILLISECONDS_PER_SECOND/2;
                 if let Some(jscap) = cap.name("joystick_strength") {
                     match jscap.parse::<u8>() {
                         Ok(strength_u8) => { joystick_strength = strength_u8 as f32 / 100.0; },
@@ -179,7 +181,7 @@ pub trait ChatInterfaced: CommandedAsynchronously {
 
                     if let Some(jdcap_units) = cap.name("joystick_duration_units") {
                         if jdcap_units == "s" {
-                            joystick_duration *= 1000;
+                            joystick_duration *= MILLISECONDS_PER_SECOND;
                         }
                     } else {
                         return None;
@@ -209,12 +211,8 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                                 }
                             },
                             virtc::Input::Button(_, _) => {
-                                if command.duration.num_milliseconds() == MILLISECONDS_PER_FRAME as i64 * 5 {
-                                    cumulative_delay += 500; //massive hack
-                                } else {
-                                    cumulative_delay += command.duration.num_milliseconds() as u32;
-                                }
-                                cumulative_delay += 51;
+                                cumulative_delay += command.duration.num_milliseconds() as u32;
+                                cumulative_delay += MILLISECONDS_PER_FRAME+1;
                             }
                         }
                     },
@@ -225,7 +223,7 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 // "button_duration" (optional),
                 // "button_duration_units" (optional; must be present if joystick_duration is)
                 let button_name;
-                let mut button_duration: u32 = MILLISECONDS_PER_FRAME*5;
+                let mut button_duration: u32 = MILLISECONDS_PER_SECOND/2;
 
                 if let Some(bncap) = cap.name("button_name") {
                     button_name = bncap;
@@ -241,7 +239,7 @@ pub trait ChatInterfaced: CommandedAsynchronously {
 
                     if let Some(bdcap_units) = cap.name("button_duration_units") {
                         if bdcap_units == "s" {
-                            button_duration *= 1000;
+                            button_duration *= MILLISECONDS_PER_SECOND;
                         }
                     } else {
                         return None;
@@ -265,17 +263,45 @@ pub trait ChatInterfaced: CommandedAsynchronously {
                 res.push(command.clone());
 
                 last_command = Some(command);
-            } else if let Some(dcap) = cap.name("delay") {
+            } else if let Some(dncap) = cap.name("delay_duration") {
+                let mut delay_duration;
+                match dncap.parse::<u32>() {
+                    Ok(duration_u32) => { delay_duration = duration_u32; },
+                    _ => return None
+                }
+
+                if let Some(dncap_units) = cap.name("delay_duration_units") {
+                    if dncap_units == "s" {
+                        delay_duration *= MILLISECONDS_PER_SECOND;
+                    }
+                } else {
+                    return None;
+                }
+                
+                match last_command {
+                    Some(command) => { cumulative_delay += command.duration.num_milliseconds() as u32; },
+                    None =>  ()
+                }
+                cumulative_delay += delay_duration;
+                
+                last_command = None
+            } else if let Some(dcap) = cap.name("delay_hardcode") {
                 // delay command - only one argument, the delay to insert
                 match dcap {
-                    "+" => { cumulative_delay += 17; },
-                    "!" => { cumulative_delay += 217; },
+                    "+" => { cumulative_delay += MILLISECONDS_PER_FRAME; },
+                    "!" => { 
+                        match last_command {
+                            Some(command) => { cumulative_delay += command.duration.num_milliseconds() as u32; },
+                            None => ()
+                        }
+                        cumulative_delay += MILLISECONDS_PER_FRAME;
+                    },
                     "." => {
                         match last_command {
                             Some(command) => { cumulative_delay += command.duration.num_milliseconds() as u32; },
-                            None =>  ()
+                            None => ()
                         }
-                        cumulative_delay += 250;
+                        cumulative_delay += MILLISECONDS_PER_DOT;
                     },
                     _ => { return None; }
                 }
@@ -383,8 +409,7 @@ impl DemC<vgcnc::VGcnC> {
                             virtc::Input::Button(name, _) => {
                                 // Is a button in a press-release cycle? If so, ignore vote
                                 // Otherwise, hold the button for as long as the command specified,
-                                // then release it indefinitely but for at least 0.05 seconds
-                                // (3 frames, at 60fps)
+                                // then release it for a frame before relinquishing control
 
                                 let button_guard_index = get_button_guard_index_gcn(&name);
 
@@ -400,7 +425,7 @@ impl DemC<vgcnc::VGcnC> {
                                             thread::sleep_ms(myclone.duration.num_milliseconds() as u32);
                                             let command2 = virtc::Input::Button(closure_button_name.clone(), false);
                                             closure_controller.set_input(&command2);
-                                            thread::sleep_ms(34);
+                                            thread::sleep_ms(MILLISECONDS_PER_FRAME);
                                         });
 
                                     },
@@ -502,7 +527,7 @@ impl DemC<vgcnc::VGcnC> {
         });
 
         Ok( DemC { controller: arc_controller,
-               re: Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>cup|cdown|cleft|cright|up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|dup|ddown|dleft|dright|a|b|x|y|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>[\+!\.]))\s*").unwrap(),
+               re: Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>cup|cdown|cleft|cright|up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|dup|ddown|dleft|dright|a|b|x|y|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>(\((?P<delay_duration>[:digit:]+)(?P<delay_duration_units>s|ms)\))|(?P<delay_hardcode>[\+!\.])))\s*").unwrap(),
                tx_command: tx_command,
                command_listener: command_listener } )
     }
