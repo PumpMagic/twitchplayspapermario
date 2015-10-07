@@ -10,7 +10,11 @@ use time::{Timespec, Duration, get_time};
 use regex::Regex;
 
 pub mod virtc;
-use demc::virtc::AcceptsInputs;
+pub mod vgcnc;
+pub mod vn64c;
+
+use demc::virtc::{AcceptsInputs, IsVJoyDevice};
+
 
 
 const MAX_JOYSTICK_COMMAND_DURATION: u32 = 5000;
@@ -303,14 +307,14 @@ pub trait ChatInterfaced: CommandedAsynchronously {
 
 
 // A democratized virtual controller
-pub struct DemC {
-    controller: Arc<virtc::VirtC>,
+pub struct DemC<T: IsVJoyDevice> {
+    controller: Arc<T>,
     re: Regex,
     tx_command: mpsc::Sender<TimedInput>,
     command_listener: thread::JoinHandle<()>
 }
 
-impl CommandedAsynchronously for DemC {
+impl<T: IsVJoyDevice> CommandedAsynchronously for DemC<T> {
     fn get_tx_command(&self) -> &mpsc::Sender<TimedInput> {
         return &self.tx_command;
     }
@@ -321,17 +325,17 @@ impl CommandedAsynchronously for DemC {
 }
 
 
-impl ChatInterfaced for DemC {
+impl<T: IsVJoyDevice> ChatInterfaced for DemC<T> {
     fn get_regex(&self) -> &Regex {
         return &self.re;
     }
 }
 
-impl DemC {
+impl DemC<vgcnc::VGcnC> {
     pub fn new(vjoy_device_number: u32) -> Result<Self, u8> {
-        let (axes, joysticks, buttons) = virtc::sample_gcn_controller_hardware(vjoy_device_number).unwrap();
+        let (axes, joysticks, buttons) = vgcnc::sample_gcn_controller_hardware(vjoy_device_number).unwrap();
         
-        let controller = match virtc::VirtC::new(vjoy_device_number, Some(axes), Some(joysticks), Some(buttons)) {
+        let controller = match vgcnc::VGcnC::new(vjoy_device_number, axes, joysticks, buttons) {
             Ok(controller) => controller,
             Err(_) => return Err(1)
         };
