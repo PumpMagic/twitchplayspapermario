@@ -13,7 +13,7 @@ pub mod virtc;
 pub mod vgcnc;
 pub mod vn64c;
 
-use demc::virtc::{AcceptsInputs, IsVJoyDevice};
+use demc::virtc::{AcceptsInputs, HasJoysticks, HasButtons};
 
 
 
@@ -82,6 +82,7 @@ trait CommandedAsynchronously {
 
 pub trait ChatInterfaced: CommandedAsynchronously {
     fn get_regex(&self) -> &Regex;
+    fn parse_string_as_commands(&self, msg: &String) -> Option<Vec<TimedInput>>;
 
     fn handle_commands(&self, commands: &String) -> Result<(), ()> {
         match self.parse_string_as_commands(commands) {
@@ -95,6 +96,36 @@ pub trait ChatInterfaced: CommandedAsynchronously {
         }
     }
 
+    fn add_command(&self, command: &TimedInput) {
+        self.get_tx_command().send(command.clone());
+    }
+}
+
+
+// A democratized virtual controller
+pub struct DemC<T> {
+    controller: Arc<T>,
+    re: Regex,
+    tx_command: mpsc::Sender<TimedInput>,
+    command_listener: thread::JoinHandle<()>
+}
+
+impl<T> CommandedAsynchronously for DemC<T> {
+    fn get_tx_command(&self) -> &mpsc::Sender<TimedInput> {
+        return &self.tx_command;
+    }
+
+    fn get_command_listener(&self) -> &thread::JoinHandle<()> {
+        return &self.command_listener;
+    }
+}
+
+
+impl<T> ChatInterfaced for DemC<T> {
+    fn get_regex(&self) -> &Regex {
+        return &self.re;
+    }
+    
     // Attempt to parse an IRC message into a list of controller commands
     //@todo just use a custom state machine rather than regex, this has to be insanely slow
     //@todo this function is huge
@@ -325,53 +356,16 @@ pub trait ChatInterfaced: CommandedAsynchronously {
 
         return Some(res);
     }
-
-    fn add_command(&self, command: &TimedInput) {
-        self.get_tx_command().send(command.clone());
-    }
 }
 
-
-// A democratized virtual controller
-pub struct DemC<T: IsVJoyDevice> {
-    controller: Arc<T>,
-    re: Regex,
-    tx_command: mpsc::Sender<TimedInput>,
-    command_listener: thread::JoinHandle<()>
-}
-
-impl<T: IsVJoyDevice> CommandedAsynchronously for DemC<T> {
-    fn get_tx_command(&self) -> &mpsc::Sender<TimedInput> {
-        return &self.tx_command;
-    }
-
-    fn get_command_listener(&self) -> &thread::JoinHandle<()> {
-        return &self.command_listener;
-    }
-}
-
-
-impl<T: IsVJoyDevice> ChatInterfaced for DemC<T> {
-    fn get_regex(&self) -> &Regex {
-        return &self.re;
-    }
-}
-
-impl DemC<vgcnc::VGcnC> {
-    pub fn new(vjoy_device_number: u32) -> Result<Self, u8> {
-        let (axes, joysticks, buttons) = vgcnc::sample_gcn_controller_hardware(vjoy_device_number).unwrap();
-        
-        let controller = match vgcnc::VGcnC::new(vjoy_device_number, axes, joysticks, buttons) {
-            Ok(controller) => controller,
-            Err(_) => return Err(1)
-        };
-
+impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
+    pub fn new(controller: T) -> Result<DemC<T>, u8> where T: HasJoysticks + HasButtons {
         let arc_controller = Arc::new(controller);
 
         let (tx_command, rx_command) = mpsc::channel();
 
         //@todo these mutexes owning nothing is indicative of unrustic code
-        //@todo should be sized according to number of buttons
+        //@todo size according to number of buttons
         let button_guards = [Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
                              Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
                              Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
@@ -417,7 +411,7 @@ impl DemC<vgcnc::VGcnC> {
                                     Ok(_) => {
                                         let closure_controller = arc_controller_command_handler.clone();
                                         let closure_button_name = name.clone();
-
+                                        
                                         let myclone = command.clone();
                                         thread::spawn(move || {
                                             let command1 = virtc::Input::Button(closure_button_name.clone(), true);
@@ -426,7 +420,7 @@ impl DemC<vgcnc::VGcnC> {
                                             let command2 = virtc::Input::Button(closure_button_name.clone(), false);
                                             closure_controller.set_input(&command2);
                                             thread::sleep_ms(MILLISECONDS_PER_FRAME);
-                                        });
+                                        }); 
 
                                     },
                                     _ => ()
@@ -526,9 +520,101 @@ impl DemC<vgcnc::VGcnC> {
             }
         });
 
+        // Dynamically generate regex that will match all of the virtual controller's inputs. LOL
+        let mut regex_string = String::new();
+        
+        regex_string.push_str( r"\s*" );
+        regex_string.push_str( r"(" );
+            regex_string.push_str( r"(?P<joystick>" );
+                // Optional: strength modifier
+                regex_string.push_str( r"(" );
+                    regex_string.push_str( r"(?P<joystick_strength>" );
+                        regex_string.push_str( r"[:digit:]+" );
+                    regex_string.push_str( r")%\s*" );
+                regex_string.push_str( r")?" );
+                    
+                // Mandatory: joystick & direction
+                regex_string.push_str( r"(?P<joystick_direction>" );
+                    for (joystick_name, _) in arc_controller.get_joystick_map() {
+                        if joystick_name == "control_stick" {
+                            regex_string.push_str( r"up|down|left|right|" );
+                        } else if joystick_name == "c_stick" {
+                            regex_string.push_str( r"cup|cdown|cleft|cright|" );
+                        }
+                    }
+                    // remove last pipe
+                    let mut new_len = regex_string.len() - 1;
+                    regex_string.truncate(new_len);
+                regex_string.push_str( r")" );
+                
+                // Optional: duration modifier
+                regex_string.push_str( r"(\s*" );
+                    regex_string.push_str( r"(?P<joystick_duration>" );
+                        regex_string.push_str( r"[:digit:]+" );
+                    regex_string.push_str( r")" );
+                    regex_string.push_str( r"(?P<joystick_duration_units>" );
+                        regex_string.push_str( r"s|ms");
+                    regex_string.push_str( r")");
+                regex_string.push_str( r")?" );
+            regex_string.push_str( r")" );
+            
+            regex_string.push_str( r"|" );
+            
+            regex_string.push_str( r"(?P<button>" );
+                regex_string.push_str( r"(" );
+                    regex_string.push_str( r"(?P<button_name>" );
+                        for (button_name, _) in arc_controller.get_button_map() {
+                            regex_string.push_str(button_name);
+                            regex_string.push_str(r"|");
+                        }
+                        // remove last pipe
+                        new_len = regex_string.len() - 1;
+                        regex_string.truncate(new_len);
+                    regex_string.push_str( r")" );
+                    
+                    regex_string.push_str( r"(" );
+                        regex_string.push_str( r"\s*(?P<button_duration>" );
+                            regex_string.push_str( r"[:digit:]+" );
+                        regex_string.push_str( r")" );
+                        
+                        regex_string.push_str( r"(?P<button_duration_units>" );
+                            regex_string.push_str( r"s|ms" );
+                        regex_string.push_str( r")" );
+                    regex_string.push_str( r")?" );
+                regex_string.push_str( r")" );
+            regex_string.push_str( r")" );
+        
+            regex_string.push_str( r"|" );
+            
+            regex_string.push_str( r"(?P<delay>" );
+                regex_string.push_str( r"(" );
+                    regex_string.push_str( r"\(" );
+                    
+                    regex_string.push_str( r"(?P<delay_duration>" );
+                        regex_string.push_str( r"[:digit:]+" );
+                    regex_string.push_str( r")" );
+                    
+                    regex_string.push_str( r"(?P<delay_duration_units>" );
+                        regex_string.push_str( r"s|ms" );
+                    regex_string.push_str( r")" );
+                        
+                    regex_string.push_str( r"\)" );
+                regex_string.push_str( r")" );
+            
+                regex_string.push_str( r"|" );
+                
+                regex_string.push_str( r"(?P<delay_hardcode>" );
+                    regex_string.push_str( r"[\+!\.]" );
+                regex_string.push_str( r")" );
+            regex_string.push_str( r")" );
+            
+        regex_string.push_str( r")\s*" );
+        
+        println!("regex: {}", regex_string);
+        
         Ok( DemC { controller: arc_controller,
-               re: Regex::new(r"\s*((?P<joystick>((?P<joystick_strength>[:digit:]+)%\s*)?(?P<joystick_direction>cup|cdown|cleft|cright|up|down|left|right)(\s*(?P<joystick_duration>[:digit:]+)(?P<joystick_duration_units>s|ms))?)|(?P<button>((?P<button_name>start|dup|ddown|dleft|dright|a|b|x|y|z|l|r)(\s*(?P<button_duration>[:digit:]+)(?P<button_duration_units>s|ms))?))|(?P<delay>(\((?P<delay_duration>[:digit:]+)(?P<delay_duration_units>s|ms)\))|(?P<delay_hardcode>[\+!\.])))\s*").unwrap(),
-               tx_command: tx_command,
-               command_listener: command_listener } )
+                   re: Regex::new(&regex_string).unwrap(),
+                   tx_command: tx_command,
+                   command_listener: command_listener } )
     }
 }

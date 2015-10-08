@@ -31,7 +31,14 @@ impl HasButtons for VN64C {
     }
 }
 impl HasAxesAndButtons for VN64C {}
-impl AcceptsInputs for VN64C {}
+impl AcceptsInputs for VN64C {
+    fn set_input(&self, input: &Input) -> Result<(), u8> {
+        match input.clone() {
+            Input::Joystick(name, direction, strength) => self.set_joystick_state(&name, direction, strength),
+            Input::Button(name, value) => self.set_button_state(&name, value)
+        }
+    }
+}
 
 impl VN64C {
     // Err(1): unable to get N64 hardware

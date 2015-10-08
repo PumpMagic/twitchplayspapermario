@@ -158,6 +158,10 @@ pub trait HasJoysticks: HasAxes {
 pub trait HasButtons: IsVJoyDevice {
     fn get_button_map(&self) -> &HashMap<String, u8>;
 
+    fn get_num_buttons(&self) -> usize {
+        self.get_button_map().len()
+    }
+    
     fn get_button_index(&self, name: &String) -> Option<u8> {
         match self.get_button_map().get(name) {
             Some(index) => Some(*index),
@@ -211,11 +215,6 @@ pub enum Input {
     Joystick(String, u16, f32),
     Button(String, bool)
 }
-pub trait AcceptsInputs: HasJoysticks + HasButtons {
-    fn set_input(&self, input: &Input) -> Result<(), u8> {
-        match input.clone() {
-            Input::Joystick(name, direction, strength) => self.set_joystick_state(&name, direction, strength),
-            Input::Button(name, value) => self.set_button_state(&name, value)
-        }
-    }
+pub trait AcceptsInputs {
+    fn set_input(&self, input: &Input) -> Result<(), u8>;
 }

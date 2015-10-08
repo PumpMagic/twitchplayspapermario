@@ -32,7 +32,14 @@ impl HasButtons for VGcnC {
     }
 }
 impl HasAxesAndButtons for VGcnC {}
-impl AcceptsInputs for VGcnC {}
+impl AcceptsInputs for VGcnC {
+    fn set_input(&self, input: &Input) -> Result<(), u8> {
+        match input.clone() {
+            Input::Joystick(name, direction, strength) => self.set_joystick_state(&name, direction, strength),
+            Input::Button(name, value) => self.set_button_state(&name, value)
+        }
+    }
+}
 
 impl VGcnC {
     // Err(1): unable to get N64 hardware
