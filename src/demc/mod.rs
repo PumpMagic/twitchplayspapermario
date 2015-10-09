@@ -1,4 +1,5 @@
 use std;
+use std::ops::Deref;
 use std::sync::Mutex;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -16,6 +17,8 @@ pub mod vn64c;
 use demc::virtc::{AcceptsInputs, HasJoysticks, HasButtons};
 
 
+const DEFAULT_JOYSTICK_COMMAND_DURATION: u32 = MILLISECONDS_PER_SECOND/2;
+const DEFAULT_BUTTON_COMMAND_DURATION: u32 = MILLISECONDS_PER_SECOND/2;
 
 const MAX_JOYSTICK_COMMAND_DURATION: u32 = 5000;
 const MAX_BUTTON_COMMAND_DURATION: u32 = 5000;
@@ -24,6 +27,12 @@ const MAX_DURATION_PER_LINE: u32 = 30000;
 const MILLISECONDS_PER_FRAME: u32 = 17;
 const MILLISECONDS_PER_SECOND: u32 = 1000;
 const MILLISECONDS_PER_DOT: u32 = 250;
+
+const JOYSTICK_TO_JOYSTICK_DELAY: u32 = MILLISECONDS_PER_FRAME*2;
+const BUTTON_TO_JOYSTICK_DELAY: u32 = 0;
+const BUTTON_TO_BUTTON_DELAY: u32 = MILLISECONDS_PER_FRAME+1;
+const JOYSTICK_TO_BUTTON_UNDELAY: u32 = MILLISECONDS_PER_FRAME;
+const SIMULTANEOUS_COMMAND_DELAY: u32 = MILLISECONDS_PER_FRAME;
 
 
 fn get_button_guard_index_n64(name: &str) -> usize {
@@ -165,10 +174,10 @@ impl<T> ChatInterfaced for DemC<T> {
                         cumulative_delay += command.duration.num_milliseconds() as u32;
                         match command.command {
                             virtc::Input::Joystick(_, _, _) => {
-                                cumulative_delay += MILLISECONDS_PER_FRAME*2;
+                                cumulative_delay += JOYSTICK_TO_JOYSTICK_DELAY;
                             },
                             virtc::Input::Button(_, _) => {
-                                ()
+                                cumulative_delay += BUTTON_TO_JOYSTICK_DELAY;
                             }
                         }
                     },
@@ -182,7 +191,7 @@ impl<T> ChatInterfaced for DemC<T> {
                 let mut joystick_strength: f32 = 1.0;
                 let mut joystick_direction: u16 = 0;
                 let mut joystick_name = "";
-                let mut joystick_duration: u32 = MILLISECONDS_PER_SECOND/2;
+                let mut joystick_duration: u32 = DEFAULT_JOYSTICK_COMMAND_DURATION;
                 if let Some(jscap) = cap.name("joystick_strength") {
                     match jscap.parse::<u8>() {
                         Ok(strength_u8) => { joystick_strength = strength_u8 as f32 / 100.0; },
@@ -237,13 +246,13 @@ impl<T> ChatInterfaced for DemC<T> {
                         match command.command {
                             virtc::Input::Joystick(_, _, _) => {
                                 cumulative_delay += command.duration.num_milliseconds() as u32;
-                                if command.duration.num_milliseconds() >= MILLISECONDS_PER_FRAME as i64 {
-                                    cumulative_delay -= MILLISECONDS_PER_FRAME;
+                                if command.duration.num_milliseconds() >= JOYSTICK_TO_BUTTON_UNDELAY as i64 {
+                                    cumulative_delay -= JOYSTICK_TO_BUTTON_UNDELAY;
                                 }
                             },
                             virtc::Input::Button(_, _) => {
                                 cumulative_delay += command.duration.num_milliseconds() as u32;
-                                cumulative_delay += MILLISECONDS_PER_FRAME+1;
+                                cumulative_delay += BUTTON_TO_BUTTON_DELAY;
                             }
                         }
                     },
@@ -254,7 +263,7 @@ impl<T> ChatInterfaced for DemC<T> {
                 // "button_duration" (optional),
                 // "button_duration_units" (optional; must be present if joystick_duration is)
                 let button_name;
-                let mut button_duration: u32 = MILLISECONDS_PER_SECOND/2;
+                let mut button_duration: u32 = DEFAULT_BUTTON_COMMAND_DURATION;
 
                 if let Some(bncap) = cap.name("button_name") {
                     button_name = bncap;
@@ -359,7 +368,7 @@ impl<T> ChatInterfaced for DemC<T> {
 }
 
 impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
-    pub fn new(controller: T) -> Result<DemC<T>, u8> where T: HasJoysticks + HasButtons {
+    pub fn new(controller: T) -> Result<DemC<T>, u8> where T: HasButtons + HasJoysticks {
         let arc_controller = Arc::new(controller);
 
         let (tx_command, rx_command) = mpsc::channel();
@@ -519,102 +528,128 @@ impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
                 thread::sleep_ms(1);
             }
         });
-
-        // Dynamically generate regex that will match all of the virtual controller's inputs. LOL
-        let mut regex_string = String::new();
         
-        regex_string.push_str( r"\s*" );
-        regex_string.push_str( r"(" );
-            regex_string.push_str( r"(?P<joystick>" );
-                // Optional: strength modifier
-                regex_string.push_str( r"(" );
-                    regex_string.push_str( r"(?P<joystick_strength>" );
-                        regex_string.push_str( r"[:digit:]+" );
-                    regex_string.push_str( r")%\s*" );
-                regex_string.push_str( r")?" );
-                    
-                // Mandatory: joystick & direction
-                regex_string.push_str( r"(?P<joystick_direction>" );
-                    for (joystick_name, _) in arc_controller.get_joystick_map() {
-                        if joystick_name == "control_stick" {
-                            regex_string.push_str( r"up|down|left|right|" );
-                        } else if joystick_name == "c_stick" {
-                            regex_string.push_str( r"cup|cdown|cleft|cright|" );
-                        }
-                    }
-                    // remove last pipe
-                    let mut new_len = regex_string.len() - 1;
-                    regex_string.truncate(new_len);
-                regex_string.push_str( r")" );
-                
-                // Optional: duration modifier
-                regex_string.push_str( r"(\s*" );
-                    regex_string.push_str( r"(?P<joystick_duration>" );
-                        regex_string.push_str( r"[:digit:]+" );
-                    regex_string.push_str( r")" );
-                    regex_string.push_str( r"(?P<joystick_duration_units>" );
-                        regex_string.push_str( r"s|ms");
-                    regex_string.push_str( r")");
-                regex_string.push_str( r")?" );
-            regex_string.push_str( r")" );
-            
-            regex_string.push_str( r"|" );
-            
-            regex_string.push_str( r"(?P<button>" );
-                regex_string.push_str( r"(" );
-                    regex_string.push_str( r"(?P<button_name>" );
-                        for (button_name, _) in arc_controller.get_button_map() {
-                            regex_string.push_str(button_name);
-                            regex_string.push_str(r"|");
-                        }
-                        // remove last pipe
-                        new_len = regex_string.len() - 1;
-                        regex_string.truncate(new_len);
-                    regex_string.push_str( r")" );
-                    
-                    regex_string.push_str( r"(" );
-                        regex_string.push_str( r"\s*(?P<button_duration>" );
-                            regex_string.push_str( r"[:digit:]+" );
-                        regex_string.push_str( r")" );
-                        
-                        regex_string.push_str( r"(?P<button_duration_units>" );
-                            regex_string.push_str( r"s|ms" );
-                        regex_string.push_str( r")" );
-                    regex_string.push_str( r")?" );
-                regex_string.push_str( r")" );
-            regex_string.push_str( r")" );
-        
-            regex_string.push_str( r"|" );
-            
-            regex_string.push_str( r"(?P<delay>" );
-                regex_string.push_str( r"(" );
-                    regex_string.push_str( r"\(" );
-                    
-                    regex_string.push_str( r"(?P<delay_duration>" );
-                        regex_string.push_str( r"[:digit:]+" );
-                    regex_string.push_str( r")" );
-                    
-                    regex_string.push_str( r"(?P<delay_duration_units>" );
-                        regex_string.push_str( r"s|ms" );
-                    regex_string.push_str( r")" );
-                        
-                    regex_string.push_str( r"\)" );
-                regex_string.push_str( r")" );
-            
-                regex_string.push_str( r"|" );
-                
-                regex_string.push_str( r"(?P<delay_hardcode>" );
-                    regex_string.push_str( r"[\+!\.]" );
-                regex_string.push_str( r")" );
-            regex_string.push_str( r")" );
-            
-        regex_string.push_str( r")\s*" );
-        
-        println!("regex: {}", regex_string);
-        
+        let my_clone = arc_controller.clone();
         Ok( DemC { controller: arc_controller,
-                   re: Regex::new(&regex_string).unwrap(),
+                   re: make_virtc_regex(my_clone.deref()).unwrap(),
                    tx_command: tx_command,
                    command_listener: command_listener } )
+    }
+}
+
+fn make_virtc_joystick_regex<T>(controller: &T) -> Result<String, u8> where T: HasJoysticks {
+    let mut regex_string = String::new();
+    
+    regex_string.push_str( r"(?P<joystick>" );
+        // Optional: strength modifier
+        regex_string.push_str( r"(" );
+            regex_string.push_str( r"(?P<joystick_strength>" );
+                regex_string.push_str( r"[:digit:]+" );
+            regex_string.push_str( r")%\s*" );
+        regex_string.push_str( r")?" );
+            
+        // Mandatory: joystick & direction
+        regex_string.push_str( r"(?P<joystick_direction>" );
+            for (joystick_name, _) in controller.get_joystick_map() {
+                if joystick_name == "control_stick" {
+                    regex_string.push_str( r"up|down|left|right|" );
+                } else if joystick_name == "c_stick" {
+                    regex_string.push_str( r"cup|cdown|cleft|cright|" );
+                }
+            }
+            // remove last pipe
+            let new_len = regex_string.len() - 1;
+            regex_string.truncate(new_len);
+        regex_string.push_str( r")" );
+        
+        // Optional: duration modifier
+        regex_string.push_str( r"(\s*" );
+            regex_string.push_str( r"(?P<joystick_duration>" );
+                regex_string.push_str( r"[:digit:]+" );
+            regex_string.push_str( r")" );
+            regex_string.push_str( r"(?P<joystick_duration_units>" );
+                regex_string.push_str( r"s|ms");
+            regex_string.push_str( r")");
+        regex_string.push_str( r")?" );
+    regex_string.push_str( r")" );
+    
+    Ok(regex_string)
+}
+
+fn make_virtc_button_regex<T>(controller: &T) -> Result<String, u8> where T: HasButtons {
+    let mut regex_string = String::new();
+    
+    regex_string.push_str( r"(?P<button>" );
+        regex_string.push_str( r"(" );
+            regex_string.push_str( r"(?P<button_name>" );
+                for (button_name, _) in controller.get_button_map() {
+                    regex_string.push_str(button_name);
+                    regex_string.push_str(r"|");
+                }
+                // remove last pipe
+                let new_len = regex_string.len() - 1;
+                regex_string.truncate(new_len);
+            regex_string.push_str( r")" );
+            
+            regex_string.push_str( r"(" );
+                regex_string.push_str( r"\s*(?P<button_duration>" );
+                    regex_string.push_str( r"[:digit:]+" );
+                regex_string.push_str( r")" );
+                
+                regex_string.push_str( r"(?P<button_duration_units>" );
+                    regex_string.push_str( r"s|ms" );
+                regex_string.push_str( r")" );
+            regex_string.push_str( r")?" );
+        regex_string.push_str( r")" );
+    regex_string.push_str( r")" );
+    
+    Ok(regex_string)
+}
+
+fn make_virtc_delay_regex() -> Result<String, u8> {
+    let mut regex_string = String::new();
+
+    regex_string.push_str( r"(?P<delay>" );
+        regex_string.push_str( r"(" );
+            regex_string.push_str( r"\(" );
+            
+            regex_string.push_str( r"(?P<delay_duration>" );
+                regex_string.push_str( r"[:digit:]+" );
+            regex_string.push_str( r")" );
+            
+            regex_string.push_str( r"(?P<delay_duration_units>" );
+                regex_string.push_str( r"s|ms" );
+            regex_string.push_str( r")" );
+                
+            regex_string.push_str( r"\)" );
+        regex_string.push_str( r")" );
+    
+        regex_string.push_str( r"|" );
+        
+        regex_string.push_str( r"(?P<delay_hardcode>" );
+            regex_string.push_str( r"[\+!\.]" );
+        regex_string.push_str( r")" );
+    regex_string.push_str( r")" );
+    
+    Ok(regex_string)
+}
+
+fn make_virtc_regex<T>(controller: &T) -> Result<Regex, u8> where T: HasButtons + HasJoysticks {
+    // Dynamically generate regex that will match all of the virtual controller's inputs. LOL
+    let mut regex_string = String::new();
+    
+    regex_string.push_str( r"\s*" );
+    regex_string.push_str( r"(" );
+        regex_string.push_str(make_virtc_joystick_regex(controller).unwrap().as_ref());
+        regex_string.push_str( r"|" );
+        regex_string.push_str(make_virtc_button_regex(controller).unwrap().as_ref());
+        regex_string.push_str( r"|" );
+        regex_string.push_str(make_virtc_delay_regex().unwrap().as_ref());
+    regex_string.push_str( r")" );
+    regex_string.push_str( r"\s*" );
+    
+    match Regex::new(&regex_string) {
+        Ok(re) => Ok(re),
+        Err(_) => Err(1)
     }
 }

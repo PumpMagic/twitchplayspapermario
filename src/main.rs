@@ -14,7 +14,8 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 
-use demc::{DemC, vgcnc, ChatInterfaced};
+use demc::{DemC, ChatInterfaced};
+use demc::vgcnc::{VGcnC, sample_gcn_controller_hardware};
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
@@ -38,8 +39,8 @@ fn handle_mod_commands(sender: &String, msg: &String) {
 
 
 fn main() {
-    let (axes, joysticks, buttons) = demc::vgcnc::sample_gcn_controller_hardware(VJOY_DEVICE_NUMBER).unwrap();
-    let raw_controller = match demc::vgcnc::VGcnC::new(VJOY_DEVICE_NUMBER, axes, joysticks, buttons) {
+    let (axes, joysticks, buttons) = sample_gcn_controller_hardware(VJOY_DEVICE_NUMBER).unwrap();
+    let raw_controller = match VGcnC::new(VJOY_DEVICE_NUMBER, axes, joysticks, buttons) {
         Ok(controller) => controller,
         Err(err) => panic!("Unable to make raw controller: err {}", err)
     };
