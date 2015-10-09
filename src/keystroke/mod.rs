@@ -10,7 +10,7 @@ pub enum Physical {
     Control,
     Alt,
     Shift,
-    F5, F7,
+    F1, F5, F7,
     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
 }
 
@@ -34,7 +34,7 @@ mod platform {
     use self::winapi::{c_int, WORD};
     use self::winapi::{INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE};
     use self::winapi::{INPUT, LPINPUT, KEYBDINPUT, MOUSEINPUT};
-    use self::winapi::{VK_RETURN, VK_SHIFT, VK_CONTROL, VK_MENU, VK_F5, VK_F7};
+    use self::winapi::{VK_RETURN, VK_SHIFT, VK_CONTROL, VK_MENU, VK_F1, VK_F5, VK_F7};
     use self::user32_sys::SendInput;
 
     use super::{Physical, Key};
@@ -46,6 +46,7 @@ mod platform {
             Shift => VK_SHIFT as WORD,
             Control => VK_CONTROL as WORD,
             Alt => VK_MENU as WORD,
+            F1 => VK_F1 as WORD,
             F5 => VK_F5 as WORD,
             F7 => VK_F7 as WORD,
             A => 'A' as WORD,

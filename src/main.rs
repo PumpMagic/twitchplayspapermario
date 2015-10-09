@@ -28,8 +28,8 @@ fn handle_mod_commands(sender: &String, msg: &String) {
     match sender.to_lowercase().as_ref() {
         "twitchplayspapermario"|"xxn1"|"kalarmar" => {
             match msg.to_lowercase().as_ref() {
-                "!savestate" => keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F5)),
-                "!loadstate" => keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F7)),
+                "!savestate" => keystroke::send_combo(&[keystroke::Key::Physical(keystroke::Physical::Shift), keystroke::Key::Physical(keystroke::Physical::F1)]),
+                "!loadstate" => keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F1)),
                 _ => ()
             }
         },
