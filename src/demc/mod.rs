@@ -111,6 +111,12 @@ pub trait ChatInterfaced: CommandedAsynchronously {
 }
 
 
+pub struct ControllerConstraints {
+    pub illegal_combinations: Vec<(String, Vec<String>)>,
+    //max_durations: Vec<
+}
+
+
 // A democratized virtual controller
 pub struct DemC<T> {
     controller: Arc<T>,
@@ -368,17 +374,17 @@ impl<T> ChatInterfaced for DemC<T> {
 }
 
 impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
-    pub fn new(controller: T) -> Result<DemC<T>, u8> where T: HasButtons + HasJoysticks {
+    pub fn new(controller: T, constraints: ControllerConstraints) -> Result<DemC<T>, u8> where T: HasButtons + HasJoysticks {
         let arc_controller = Arc::new(controller);
 
         let (tx_command, rx_command) = mpsc::channel();
 
         //@todo these mutexes owning nothing is indicative of unrustic code
         //@todo size according to number of buttons
-        let button_guards = [Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
-                             Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
-                             Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
-                             Mutex::new(()), Mutex::new(())];
+        let button_guards = [Mutex::new((0)), Mutex::new((1)), Mutex::new((2)), Mutex::new((3)),
+                             Mutex::new((4)), Mutex::new((5)), Mutex::new((6)), Mutex::new((7)),
+                             Mutex::new((8)), Mutex::new((9)), Mutex::new((10)), Mutex::new((11)),
+                             Mutex::new((12)), Mutex::new((13))];
 
         // Spawn a command listener
         let arc_controller_command_handler = arc_controller.clone();
@@ -414,10 +420,34 @@ impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
                                 // Otherwise, hold the button for as long as the command specified,
                                 // then release it for a frame before relinquishing control
 
+                                
+                                // Make sure that pressing this button would not complete an illegal combination
+                                let mut ignore_button = false;
+                                for &(ref constrained_button, ref constraining_buttons) in constraints.illegal_combinations.iter() {
+                                    
+                                    if constrained_button.as_ref() == name {
+                                        let mut constrained_button_in_use_count = 0;
+                                        for constraining_button in constraining_buttons.iter() {
+                                            let index = get_button_guard_index_gcn(&constraining_button);
+                                            if !{ button_guards[index].try_lock().is_ok() } {
+                                                constrained_button_in_use_count = constrained_button_in_use_count+1;
+                                                println!("{} not ok", constraining_button);
+                                            }
+                                        }
+                                        if constrained_button_in_use_count == constraining_buttons.len() {
+                                            ignore_button = true;
+                                            println!("Ignoring button: {}", name);
+                                        }
+                                    }
+                                    
+                                    //println!("Button: {}", constrained_button);
+                                }
+                                
+                                
                                 let button_guard_index = get_button_guard_index_gcn(&name);
 
-                                match button_guards[button_guard_index].try_lock() {
-                                    Ok(_) => {
+                                if !ignore_button {
+                                    if let Ok(guard) = button_guards[button_guard_index].try_lock() {
                                         let closure_controller = arc_controller_command_handler.clone();
                                         let closure_button_name = name.clone();
                                         
@@ -429,10 +459,9 @@ impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
                                             let command2 = virtc::Input::Button(closure_button_name.clone(), false);
                                             closure_controller.set_input(&command2);
                                             thread::sleep_ms(MILLISECONDS_PER_FRAME);
+                                            println!("lock_result: {}", guard);
                                         }); 
-
-                                    },
-                                    _ => ()
+                                    }
                                 }
                             }
                         }
