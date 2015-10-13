@@ -23,6 +23,9 @@ const DEFAULT_BUTTON_COMMAND_DURATION: u32 = MILLISECONDS_PER_SECOND/2;
 const MAX_JOYSTICK_COMMAND_DURATION: u32 = 5000;
 const MAX_BUTTON_COMMAND_DURATION: u32 = 5000;
 const MAX_B_BUTTON_COMMAND_DURATION: u32 = 30000;
+const MAX_X_BUTTON_COMMAND_DURATION: u32 = 30000;
+const MAX_R_BUTTON_COMMAND_DURATION: u32 = 10000;
+const MAX_START_BUTTON_COMMAND_DURATION: u32 = 500;
 const MAX_DURATION_PER_LINE: u32 = 30000;
 const MILLISECONDS_PER_FRAME: u32 = 17;
 const MILLISECONDS_PER_SECOND: u32 = 1000;
@@ -292,14 +295,17 @@ impl<T> ChatInterfaced for DemC<T> {
                     }
                 }
 
-                if cap.name("button_name").unwrap() == "b" {
-                    if button_duration > MAX_B_BUTTON_COMMAND_DURATION {
-                        return None;
-                    }
-                } else {
-                    if button_duration > MAX_BUTTON_COMMAND_DURATION {
-                        return None;
-                    }
+                //@todo support per-button max durations in the passed constraints
+                let max_duration = match button_name {
+                    "b" => MAX_B_BUTTON_COMMAND_DURATION,
+                    "x" => MAX_X_BUTTON_COMMAND_DURATION,
+                    "r" => MAX_R_BUTTON_COMMAND_DURATION,
+                    "start" => MAX_START_BUTTON_COMMAND_DURATION,
+                    _ => MAX_BUTTON_COMMAND_DURATION
+                };
+                if button_duration > max_duration {
+                    println!("Exceeds max of {}", max_duration);
+                    return None;
                 }
 
                 let time_now = get_time();
