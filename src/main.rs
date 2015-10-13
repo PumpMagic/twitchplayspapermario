@@ -33,7 +33,7 @@ enum ModCommand {
 }
 fn parse_mod_commands(sender: &String, msg: &String) -> Option<ModCommand> {
     match sender.to_lowercase().as_ref() {
-        "twitchplayspapermario"|"xxn1"|"kalarmar" => {
+        "twitchplayspapermario"|"xxn1"|"kalarmar"|"rashama_izouki"|"mooismyusername" => {
             match msg.to_lowercase().as_ref() {
                 "!savestate" => Some(ModCommand::SaveState),
                 "!loadstate" => Some(ModCommand::LoadState),
