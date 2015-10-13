@@ -304,7 +304,6 @@ impl<T> ChatInterfaced for DemC<T> {
                     _ => MAX_BUTTON_COMMAND_DURATION
                 };
                 if button_duration > max_duration {
-                    println!("Exceeds max of {}", max_duration);
                     return None;
                 }
 
