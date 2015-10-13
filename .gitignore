@@ -1,0 +1,8 @@
+# Builds
+/target/
+
+# Private data
+tppm.toml
+
+# Logs
+chat.txt
