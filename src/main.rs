@@ -123,7 +123,12 @@ fn main() {
     };
 
     // Initialize a democratized virtual controller
-    let controller = match DemC::new(raw_controller, demc::ControllerConstraints { illegal_combinations: vec!((String::from("start"), vec!(String::from("b"), String::from("x")))) } ) {
+    let controller = match DemC::new(raw_controller, demc::ControllerConstraints {
+        illegal_combinations: vec![
+                                (String::from("start"), vec!(String::from("b"), String::from("x"))),
+                                (String::from("b"), vec!(String::from("start"), String::from("x"))),
+                                (String::from("x"), vec!(String::from("b"), String::from("start")))] } )
+    {
         Ok(controller) => controller,
         Err(err) => panic!("Unable to create democratized controller: DemC error {}", err)
     };

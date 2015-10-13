@@ -28,7 +28,6 @@ pub fn is_vjoy_enabled() -> bool {
     pub fn DriverMatch(DllVer: *mut libc::c_ushort,
                        DrvVer: *mut libc::c_ushort) -> libc::c_int;
     pub fn RegisterRemovalCB(cb: RemovalCB, data: *mut libc::c_void) -> ();
-    pub fn GetVJDButtonNumber(rID: libc::c_uint) -> libc::c_int;
     pub fn GetVJDDiscPovNumber(rID: libc::c_uint) -> libc::c_int;
     pub fn GetVJDContPovNumber(rID: libc::c_uint) -> libc::c_int;
 */

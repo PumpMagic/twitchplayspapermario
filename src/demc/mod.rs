@@ -379,16 +379,17 @@ impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
 
         let (tx_command, rx_command) = mpsc::channel();
 
-        //@todo these mutexes owning nothing is indicative of unrustic code
-        //@todo size according to number of buttons
-        let button_guards = [Mutex::new((0)), Mutex::new((1)), Mutex::new((2)), Mutex::new((3)),
-                             Mutex::new((4)), Mutex::new((5)), Mutex::new((6)), Mutex::new((7)),
-                             Mutex::new((8)), Mutex::new((9)), Mutex::new((10)), Mutex::new((11)),
-                             Mutex::new((12)), Mutex::new((13))];
-
         // Spawn a command listener
         let arc_controller_command_handler = arc_controller.clone();
         let command_listener = thread::spawn(move || {
+            //@todo these mutexes owning nothing is indicative of unrustic code
+            //@todo size according to number of buttons
+            let button_guards = Arc::new(
+                                    vec![Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
+                                         Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
+                                         Mutex::new(()), Mutex::new(()), Mutex::new(()), Mutex::new(()),
+                                         Mutex::new(()), Mutex::new(())]);
+        
             let mut queued_commands: Vec<TimedInput> = Vec::new();
             let mut active_joystick_commands: Vec<TimedInput> = Vec::new();
             // There is no active button commands vector because closures
@@ -431,37 +432,38 @@ impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
                                             let index = get_button_guard_index_gcn(&constraining_button);
                                             if !{ button_guards[index].try_lock().is_ok() } {
                                                 constrained_button_in_use_count = constrained_button_in_use_count+1;
-                                                println!("{} not ok", constraining_button);
                                             }
                                         }
                                         if constrained_button_in_use_count == constraining_buttons.len() {
                                             ignore_button = true;
-                                            println!("Ignoring button: {}", name);
                                         }
                                     }
-                                    
-                                    //println!("Button: {}", constrained_button);
                                 }
-                                
-                                
-                                let button_guard_index = get_button_guard_index_gcn(&name);
 
                                 if !ignore_button {
-                                    if let Ok(guard) = button_guards[button_guard_index].try_lock() {
-                                        let closure_controller = arc_controller_command_handler.clone();
-                                        let closure_button_name = name.clone();
-                                        
-                                        let myclone = command.clone();
-                                        thread::spawn(move || {
-                                            let command1 = virtc::Input::Button(closure_button_name.clone(), true);
-                                            closure_controller.set_input(&command1);
-                                            thread::sleep_ms(myclone.duration.num_milliseconds() as u32);
-                                            let command2 = virtc::Input::Button(closure_button_name.clone(), false);
-                                            closure_controller.set_input(&command2);
-                                            thread::sleep_ms(MILLISECONDS_PER_FRAME);
-                                            println!("lock_result: {}", guard);
-                                        }); 
-                                    }
+                                    let closure_controller = arc_controller_command_handler.clone();
+                                    let closure_button_name = name.clone();
+                                    
+                                    let command_clone = command.clone();
+                                    let button_guards_clone = button_guards.clone(); // Arc<Vec<Mutex<()>>>
+                                    
+                                    thread::spawn(move || {
+                                        let button_guard_index = get_button_guard_index_gcn(&name);
+                                        let button_guard_vec: &Vec<_> = button_guards_clone.deref(); // Vec<Mutex<()>>
+                                        let button_guard = &button_guard_vec[button_guard_index]; // Mutex<()>
+                                        let lock_result = button_guard.try_lock();
+                                        match lock_result {
+                                            Ok(_) => {
+                                                let command1 = virtc::Input::Button(closure_button_name.clone(), true);
+                                                closure_controller.set_input(&command1);
+                                                thread::sleep_ms(command_clone.duration.num_milliseconds() as u32);
+                                                let command2 = virtc::Input::Button(closure_button_name.clone(), false);
+                                                closure_controller.set_input(&command2);
+                                                thread::sleep_ms(MILLISECONDS_PER_FRAME);
+                                            },
+                                            _ => ()
+                                        }
+                                    }); 
                                 }
                             }
                         }
