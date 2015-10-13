@@ -30,7 +30,7 @@ const MILLISECONDS_PER_DOT: u32 = 250;
 
 const JOYSTICK_TO_JOYSTICK_DELAY: u32 = MILLISECONDS_PER_FRAME*2;
 const BUTTON_TO_JOYSTICK_DELAY: u32 = 0;
-const BUTTON_TO_BUTTON_DELAY: u32 = MILLISECONDS_PER_FRAME+1;
+const BUTTON_TO_BUTTON_DELAY: u32 = MILLISECONDS_PER_FRAME*3;
 const JOYSTICK_TO_BUTTON_UNDELAY: u32 = MILLISECONDS_PER_FRAME;
 const SIMULTANEOUS_COMMAND_DELAY: u32 = MILLISECONDS_PER_FRAME;
 
@@ -449,8 +449,8 @@ impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
                                     
                                     thread::spawn(move || {
                                         let button_guard_index = get_button_guard_index_gcn(&name);
-                                        let button_guard_vec: &Vec<_> = button_guards_clone.deref(); // Vec<Mutex<()>>
-                                        let button_guard = &button_guard_vec[button_guard_index]; // Mutex<()>
+                                        let button_guard_vec: &Vec<_> = button_guards_clone.deref();
+                                        let button_guard = &button_guard_vec[button_guard_index];
                                         let lock_result = button_guard.try_lock();
                                         match lock_result {
                                             Ok(_) => {
@@ -459,7 +459,6 @@ impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
                                                 thread::sleep_ms(command_clone.duration.num_milliseconds() as u32);
                                                 let command2 = virtc::Input::Button(closure_button_name.clone(), false);
                                                 closure_controller.set_input(&command2);
-                                                thread::sleep_ms(MILLISECONDS_PER_FRAME);
                                             },
                                             _ => ()
                                         }
