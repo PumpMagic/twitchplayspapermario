@@ -14,6 +14,7 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
+use std::thread;
 
 use demc::{DemC, ChatInterfaced};
 use demc::vgcnc::{VGcnC, sample_gcn_controller_hardware};
@@ -77,10 +78,14 @@ fn handle_tmi_message<T>(sender: &String, message: &String, accepting_controller
             Some(mod_command) => {
                 match mod_command {
                     ModCommand::SaveState => {
-                        keystroke::send_combo(&[keystroke::Key::Physical(keystroke::Physical::Shift), keystroke::Key::Physical(keystroke::Physical::F1)]);
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::F1));
+                        thread::sleep_ms(500);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::F1));
                     },
                     ModCommand::LoadState => {
-                        keystroke::press_key(keystroke::Key::Physical(keystroke::Physical::F1));
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::F7));
+                        thread::sleep_ms(500);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::F7));
                     },
                     ModCommand::UnplugController => {
                         new_accept_controller_command_value = Some(false);

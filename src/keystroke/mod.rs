@@ -10,14 +10,20 @@ pub enum Physical {
     Control,
     Alt,
     Shift,
-    F1, F5, F7,
+    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
     A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum Scan {
+    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Key {
     Physical(Physical),
     Unicode(char),
+    Scan(Scan)
 }
 
 #[cfg(target_os = "macos")]
@@ -32,12 +38,12 @@ mod platform {
 
     use std::mem::{size_of, transmute_copy};
     use self::winapi::{c_int, WORD};
-    use self::winapi::{INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE};
+    use self::winapi::{INPUT_KEYBOARD, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, KEYEVENTF_SCANCODE};
     use self::winapi::{INPUT, LPINPUT, KEYBDINPUT, MOUSEINPUT};
-    use self::winapi::{VK_RETURN, VK_SHIFT, VK_CONTROL, VK_MENU, VK_F1, VK_F5, VK_F7};
+    use self::winapi::{VK_RETURN, VK_SHIFT, VK_CONTROL, VK_MENU, VK_F1, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12};
     use self::user32_sys::SendInput;
 
-    use super::{Physical, Key};
+    use super::{Physical, Key, Scan};
 
     fn get_keycode(p: Physical) -> WORD {
         use super::Physical::*;
@@ -47,8 +53,17 @@ mod platform {
             Control => VK_CONTROL as WORD,
             Alt => VK_MENU as WORD,
             F1 => VK_F1 as WORD,
+            F2 => VK_F2 as WORD,
+            F3 => VK_F3 as WORD,
+            F4 => VK_F4 as WORD,
             F5 => VK_F5 as WORD,
+            F6 => VK_F6 as WORD,
             F7 => VK_F7 as WORD,
+            F8 => VK_F8 as WORD,
+            F9 => VK_F9 as WORD,
+            F10 => VK_F10 as WORD,
+            F11 => VK_F11 as WORD,
+            F12 => VK_F12 as WORD,
             A => 'A' as WORD,
             B => 'B' as WORD,
             C => 'C' as WORD,
@@ -77,6 +92,24 @@ mod platform {
             Z => 'Z' as WORD,
         }
     }
+        
+    pub fn get_scancode(s: Scan) -> WORD {
+        use super::Scan::*;
+        match s {
+            F1 => 0x3B as WORD,
+            F2 => 0x3C as WORD,
+            F3 => 0x3D as WORD,
+            F4 => 0x3E as WORD,
+            F5 => 0x3F as WORD,
+            F6 => 0x40 as WORD,
+            F7 => 0x41 as WORD,
+            F8 => 0x42 as WORD,
+            F9 => 0x43 as WORD,
+            F10 => 0x44 as WORD,
+            F11 => 0x85 as WORD,
+            F12 => 0x86 as WORD
+        }
+    }
 
     pub fn press_key(k: Key) {
         unsafe { match k {
@@ -100,6 +133,19 @@ mod platform {
                         wVk: 0,
                         wScan: c as WORD, // 0 := hardware scan code for a key
                         dwFlags: KEYEVENTF_UNICODE, // 0 := a key press
+                        time: 0,
+                        dwExtraInfo: 0,
+                    }),
+                };
+                SendInput(1, &mut x as LPINPUT, size_of::<INPUT>() as c_int);
+            },
+            Key::Scan(sc) => {
+                let mut x = INPUT {
+                    type_: INPUT_KEYBOARD,
+                    union_: transmute_copy::<KEYBDINPUT, MOUSEINPUT>(&KEYBDINPUT {
+                        wVk: 0,
+                        wScan: get_scancode(sc),
+                        dwFlags: KEYEVENTF_SCANCODE,
                         time: 0,
                         dwExtraInfo: 0,
                     }),
@@ -131,6 +177,19 @@ mod platform {
                         wVk: 0, // 'a' key
                         wScan: c as WORD, // 0 := hardware scan code for a key
                         dwFlags: KEYEVENTF_UNICODE|KEYEVENTF_KEYUP,
+                        time: 0,
+                        dwExtraInfo: 0,
+                    }),
+                };
+                SendInput(1, &mut x as LPINPUT, size_of::<INPUT>() as c_int);
+            },
+            Key::Scan(sc) => {
+                let mut x = INPUT {
+                    type_: INPUT_KEYBOARD,
+                    union_: transmute_copy::<KEYBDINPUT, MOUSEINPUT>(&KEYBDINPUT {
+                        wVk: 0, // 'a' key
+                        wScan: get_scancode(sc),
+                        dwFlags: KEYEVENTF_SCANCODE|KEYEVENTF_KEYUP,
                         time: 0,
                         dwExtraInfo: 0,
                     }),
