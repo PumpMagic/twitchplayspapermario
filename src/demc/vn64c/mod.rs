@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+/*se std::collections::HashMap;
 
 use demc::virtc::*;
 
@@ -26,7 +26,7 @@ impl HasJoysticks for VN64C {
     }
 }
 impl HasButtons for VN64C {
-    fn get_button_map(&self) -> &HashMap<String, u8> {
+    fn get_button_name_to_index_map(&self) -> &HashMap<String, u8> {
         &self.buttons
     }
 }
@@ -108,3 +108,4 @@ pub fn sample_n64_controller_hardware(device_number: u32) -> Result<(HashMap<Str
 
     Ok((axes, joysticks, buttons))
 }
+*/

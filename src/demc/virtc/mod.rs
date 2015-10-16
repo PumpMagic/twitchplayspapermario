@@ -7,6 +7,7 @@ pub mod vjoy_rust;
 extern crate std;
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 
 // IsVJoyDevice says that the implementor is a representation of a vJoy virtual joystick
@@ -38,11 +39,13 @@ pub trait IsVJoyDevice {
 //@todo separate mins and maxes into their own maps and initialize those locally so that user libs don't need to
 pub trait HasAxes: IsVJoyDevice {
     // Map of axis names to (vJoy axis HID constant, minimum value, maximum value) triplets
-    fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)>;
+    fn get_axis_constants(&self) -> &HashMap<String, (u32, i64, i64)>;
+    // Map of axis names to states
+    fn get_axis_states(&self) -> Arc<Mutex<HashMap<String, f32>>>;
 
     // Convenience function for getting the vJoy axis HID constant of the axis with given name
     fn get_axis_hid(&self, name: &String) -> Option<u32> {
-        match self.get_axis_map().get(name) {
+        match self.get_axis_constants().get(name) {
             Some(&(hid, _, _)) => Some(hid),
             None => None
         }
@@ -50,7 +53,7 @@ pub trait HasAxes: IsVJoyDevice {
 
     // Convenience function for getting the vJoy axis minimum of the axis with given name
     fn get_axis_min(&self, name: &String) -> Option<i64> {
-        match self.get_axis_map().get(name) {
+        match self.get_axis_constants().get(name) {
             Some(&(_, min, _)) => Some(min),
             None => None
         }
@@ -58,7 +61,7 @@ pub trait HasAxes: IsVJoyDevice {
 
     // Convenience function for getting the vJoy axis maximum of the axis with given name
     fn get_axis_max(&self, name: &String) -> Option<i64> {
-        match self.get_axis_map().get(name) {
+        match self.get_axis_constants().get(name) {
             Some(&(_, _, max)) => Some(max),
             None => None
         }
@@ -98,14 +101,19 @@ pub trait HasAxes: IsVJoyDevice {
         let mid: i64 = ((max - min)/2) as i64;
         let val = mid + (strength * (mid as f32)) as i64;
 
-        match vjoy_rust::set_vjoystick_axis(self.get_device_number(), hid, val) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(4)
+        if let Err(_) = vjoy_rust::set_vjoystick_axis(self.get_device_number(), hid, val) {
+            return Err(4);
         }
+        
+        let states_guard = self.get_axis_states();
+        let mut states = states_guard.lock().unwrap(); //@todo unwrap
+        states.insert(name.clone(), strength);
+        
+        Ok(())
     }
 
     fn verify_vjoystick_axis_compatibility(&self) -> Result<(), ()> {
-        for (_, &(axis_index, _, _)) in self.get_axis_map() {
+        for (_, &(axis_index, _, _)) in self.get_axis_constants() {
             if vjoy_rust::get_vjoystick_axis_exists(self.get_device_number(), axis_index)== false {
                 return Err(());
             }
@@ -119,6 +127,31 @@ pub trait HasAxes: IsVJoyDevice {
 pub trait HasJoysticks: HasAxes {
     // Map of joystick names to (axis, axis) tuples
     fn get_joystick_map(&self) -> &HashMap<String, (String, String)>;
+    // Map of joystick names to values (as (direction, strength) tuples), computed on the fly from their axes
+    fn get_joystick_states(&self) -> HashMap<String, (u16, f32)> {
+        let mut states = HashMap::new();
+        
+        let axis_states_guard = self.get_axis_states();
+        let axis_states = axis_states_guard.lock().unwrap();
+        //@todo there must be a more efficient way to iterate through this hashmap
+        for (joystick_name, &(ref axis_1_name, ref axis_2_name)) in self.get_joystick_map().iter() {
+            let axis_1_value: f32 = axis_states.get(&axis_1_name.clone()).unwrap().clone(); //@todo unwrap
+            let axis_2_value: f32 = axis_states.get(&axis_2_name.clone()).unwrap().clone(); //@todo unwrap
+            
+            let mut direction_avg_rad = axis_2_value.atan2(axis_1_value);
+            if direction_avg_rad < 0.0 {
+                direction_avg_rad = direction_avg_rad + ((2.0*std::f32::consts::PI) as f32);
+            }
+            
+            let direction_avg_deg = (direction_avg_rad * 180.0 / std::f32::consts::PI) as u16;
+            
+            let strength = (axis_1_value*axis_1_value + axis_2_value*axis_2_value).sqrt();
+            
+            states.insert(joystick_name.clone(), (direction_avg_deg, strength));
+        }
+        
+        states
+    }
 
     fn get_joystick_axis_names(&self, name: &String) -> Option<&(String, String)> {
         match self.get_joystick_map().get(name) {
@@ -150,45 +183,49 @@ pub trait HasJoysticks: HasAxes {
             Ok(()) => (),
             Err(_) => return Err(2)
         }
-
+        
         Ok(())
     }
 }
 
 pub trait HasButtons: IsVJoyDevice {
-    fn get_button_map(&self) -> &HashMap<String, u8>;
-
+    fn get_button_name_to_index_map(&self) -> &HashMap<String, u8>;
+    fn get_button_name_to_state_map(&self) -> Arc<Mutex<HashMap<String, bool>>>;
+    
     fn get_num_buttons(&self) -> usize {
-        self.get_button_map().len()
+        self.get_button_name_to_index_map().len()
     }
     
     fn get_button_index(&self, name: &String) -> Option<u8> {
-        match self.get_button_map().get(name) {
+        match self.get_button_name_to_index_map().get(name) {
             Some(index) => Some(*index),
             None => None
         }
     }
-    
-    //@todo
-    fn get_button_state(&self, name: &String) -> Option<bool> {
-        return Some(false);
-    }
 
-    // Err(1): Unable to set virtual joystick button
+    // Err(1): No button with given name exists
+    // Err(2): Unable to set virtual joystick button
     fn set_button_state(&self, name: &String, value: bool) -> Result<(), u8> {
-        //@todo unwrap here
-        let index = self.get_button_index(name).unwrap();
+        let index = match self.get_button_index(name) {
+            Some(index) => index,
+            None => return Err(1)
+        };
 
         let valc = value as i32;
 
-        match vjoy_rust::set_vjoystick_button(self.get_device_number(), index, valc) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(1)
+        if let Err(_) = vjoy_rust::set_vjoystick_button(self.get_device_number(), index, valc) {
+            return Err(2);
         }
+        
+        let nsm_guard = self.get_button_name_to_state_map();
+        let mut nsm = nsm_guard.lock().unwrap(); //@todo unwrap
+        nsm.insert(name.clone(), value);
+        
+        Ok(())
     }
 
     fn verify_vjoystick_button_compatibility(&self) -> Result<(), ()> {
-        if (vjoy_rust::get_vjoystick_button_count(self.get_device_number()) as usize) < self.get_button_map().len() {
+        if (vjoy_rust::get_vjoystick_button_count(self.get_device_number()) as usize) < self.get_button_name_to_index_map().len() {
             return Err(());
         }
         

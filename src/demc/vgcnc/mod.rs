@@ -1,14 +1,17 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use demc::virtc::*;
 
 
 //@todo track state
 pub struct VGcnC {
-    axes: HashMap<String, (u32, i64, i64)>,
+    device_number: u32,
+    axis_constants: HashMap<String, (u32, i64, i64)>,
+    axis_states: Arc<Mutex<HashMap<String, f32>>>,
     joysticks: HashMap<String, (String, String)>,
-    buttons: HashMap<String, u8>,
-    device_number: u32
+    button_names_to_indices: HashMap<String, u8>,
+    button_names_to_states: Arc<Mutex<HashMap<String, bool>>>
 }
 
 impl IsVJoyDevice for VGcnC {
@@ -17,8 +20,12 @@ impl IsVJoyDevice for VGcnC {
     }
 }
 impl HasAxes for VGcnC {
-    fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)> {
-        &self.axes
+    fn get_axis_constants(&self) -> &HashMap<String, (u32, i64, i64)> {
+        &self.axis_constants
+    }
+    
+    fn get_axis_states(&self) -> Arc<Mutex<HashMap<String, f32>>> {
+        self.axis_states.clone()
     }
 }
 impl HasJoysticks for VGcnC {
@@ -27,8 +34,12 @@ impl HasJoysticks for VGcnC {
     }
 }
 impl HasButtons for VGcnC {
-    fn get_button_map(&self) -> &HashMap<String, u8> {
-        &self.buttons
+    fn get_button_name_to_index_map(&self) -> &HashMap<String, u8> {
+        &self.button_names_to_indices
+    }
+    
+    fn get_button_name_to_state_map(&self) -> Arc<Mutex<HashMap<String, bool>>> {
+        self.button_names_to_states.clone()
     }
 }
 impl HasAxesAndButtons for VGcnC {}
@@ -46,16 +57,30 @@ impl VGcnC {
     // Err(2): vjoystick doesn't meet N64 controller requirements
     // Err(3): unable to claim and reset vjoystick
     pub fn new(device_number: u32,
-               axes: HashMap<String, (u32, i64, i64)>,
+               axis_constants: HashMap<String, (u32, i64, i64)>,
                joysticks: HashMap<String, (String, String)>,
-               buttons: HashMap<String, u8>)
+               button_names_to_indices: HashMap<String, u8>)
                     -> Result<Self, u8>
     {
-        let virtc = VGcnC { axes: axes, joysticks: joysticks, buttons: buttons, device_number: device_number };
+        let mut axis_states = HashMap::new();
+        for (axis_name, _) in axis_constants.iter() {
+            axis_states.insert(axis_name.clone(), 0.0);
+        }
+    
+        let mut button_names_to_states = HashMap::new();
+        for (button_name, _) in button_names_to_indices.iter() {
+            button_names_to_states.insert(button_name.clone(), false);
+        }
+        
+        let virtc = VGcnC { device_number: device_number,
+                            axis_constants: axis_constants,
+                            axis_states: Arc::new(Mutex::new(axis_states)),
+                            joysticks: joysticks,
+                            button_names_to_indices: button_names_to_indices,
+                            button_names_to_states: Arc::new(Mutex::new(button_names_to_states)) };
 
-        match virtc.verify_vjoystick_compatibility() {
-            Ok(_) => (),
-            Err(_) => return Err(2)
+        if let Err(_) = virtc.verify_vjoystick_compatibility() {
+            return Err(2);
         }
 
         match virtc.claim_and_reset() {
@@ -68,7 +93,7 @@ impl VGcnC {
 pub fn sample_gcn_controller_hardware(device_number: u32)
         -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, (String, String)>,HashMap<String, u8>), u8>
 {
-    let mut axes = HashMap::new();
+    let mut axis_constants = HashMap::new();
 
     let jx_min = match vjoy_rust::get_vjoystick_axis_min(device_number, 0x30) {
         Ok(min) => min,
@@ -104,10 +129,10 @@ pub fn sample_gcn_controller_hardware(device_number: u32)
         Err(_) => return Err(4)
     };
 
-    axes.insert(String::from("jx"), (0x30, jx_min, jx_max));
-    axes.insert(String::from("jy"), (0x31, jy_min, jy_max));
-    axes.insert(String::from("cx"), (0x33, cx_min, cx_max));
-    axes.insert(String::from("cy"), (0x34, cy_min, cy_max));
+    axis_constants.insert(String::from("jx"), (0x30, jx_min, jx_max));
+    axis_constants.insert(String::from("jy"), (0x31, jy_min, jy_max));
+    axis_constants.insert(String::from("cx"), (0x33, cx_min, cx_max));
+    axis_constants.insert(String::from("cy"), (0x34, cy_min, cy_max));
 
     let mut joysticks = HashMap::new();
     joysticks.insert(String::from("control_stick"), (String::from("jx"), String::from("jy")));
@@ -127,5 +152,5 @@ pub fn sample_gcn_controller_hardware(device_number: u32)
     buttons.insert(String::from("dleft"), 0x0b);
     buttons.insert(String::from("dright"), 0x0c);
 
-    Ok((axes, joysticks, buttons))
+    Ok((axis_constants, joysticks, buttons))
 }

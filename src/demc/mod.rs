@@ -619,7 +619,7 @@ fn make_virtc_button_regex<T>(controller: &T) -> Result<String, u8> where T: Has
     regex_string.push_str( r"(?P<button>" );
         regex_string.push_str( r"(" );
             regex_string.push_str( r"(?P<button_name>" );
-                for (button_name, _) in controller.get_button_map() {
+                for (button_name, _) in controller.get_button_name_to_index_map() {
                     regex_string.push_str(button_name);
                     regex_string.push_str(r"|");
                 }
