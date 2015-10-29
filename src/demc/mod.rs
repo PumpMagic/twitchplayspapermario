@@ -211,10 +211,10 @@ impl<T> ChatInterfaced for DemC<T> {
                 }
                 if let Some(jdcap) = cap.name("joystick_direction") {
                     match jdcap {
-                        "cup" => { joystick_direction = 90; joystick_name = "c_stick"; },
+                        /*"cup" => { joystick_direction = 90; joystick_name = "c_stick"; },
                         "cdown" => { joystick_direction = 270; joystick_name = "c_stick"; },
                         "cleft" => { joystick_direction = 180; joystick_name = "c_stick"; },
-                        "cright" => { joystick_direction = 0; joystick_name = "c_stick"; },
+                        "cright" => { joystick_direction = 0; joystick_name = "c_stick"; },*/
                         "up" => { joystick_direction = 90; joystick_name = "control_stick"; },
                         "down" => { joystick_direction = 270; joystick_name = "control_stick"; },
                         "left" => { joystick_direction = 180; joystick_name = "control_stick"; },
@@ -436,7 +436,7 @@ impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
                                     if constrained_button.as_ref() == name {
                                         let mut constrained_button_in_use_count = 0;
                                         for constraining_button in constraining_buttons.iter() {
-                                            let index = get_button_guard_index_gcn(&constraining_button);
+                                            let index = get_button_guard_index_n64(&constraining_button);
                                             if !{ button_guards[index].try_lock().is_ok() } {
                                                 constrained_button_in_use_count = constrained_button_in_use_count+1;
                                             }
@@ -455,7 +455,7 @@ impl<T> DemC<T> where T: AcceptsInputs + Send + Sync + 'static {
                                     let button_guards_clone = button_guards.clone(); // Arc<Vec<Mutex<()>>>
                                     
                                     thread::spawn(move || {
-                                        let button_guard_index = get_button_guard_index_gcn(&name);
+                                        let button_guard_index = get_button_guard_index_n64(&name);
                                         let button_guard_vec: &Vec<_> = button_guards_clone.deref();
                                         let button_guard = &button_guard_vec[button_guard_index];
                                         let lock_result = button_guard.try_lock();
@@ -609,6 +609,8 @@ fn make_virtc_joystick_regex<T>(controller: &T) -> Result<String, u8> where T: H
             regex_string.push_str( r")");
         regex_string.push_str( r")?" );
     regex_string.push_str( r")" );
+    
+    println!("Regex: {}", regex_string);
     
     Ok(regex_string)
 }

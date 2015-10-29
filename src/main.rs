@@ -17,7 +17,8 @@ use std::path::Path;
 use std::thread;
 
 use demc::{DemC, ChatInterfaced};
-use demc::vgcnc::{VGcnC, sample_gcn_controller_hardware};
+//use demc::vgcnc::{VGcnC, sample_gcn_controller_hardware};
+use demc::vn64c::{VN64C, sample_n64_controller_hardware};
 
 
 const CONFIG_FILE_PATH: &'static str = "tppm.toml";
@@ -121,8 +122,8 @@ fn handle_tmi_message<T>(sender: &String, message: &String, accepting_controller
 
 
 fn main() {
-    let (axes, joysticks, buttons) = sample_gcn_controller_hardware(VJOY_DEVICE_NUMBER).unwrap();
-    let raw_controller = match VGcnC::new(VJOY_DEVICE_NUMBER, axes, joysticks, buttons) {
+    let (axes, joysticks, buttons) = sample_n64_controller_hardware(VJOY_DEVICE_NUMBER).unwrap();
+    let raw_controller = match VN64C::new(VJOY_DEVICE_NUMBER, axes, joysticks, buttons) {
         Ok(controller) => controller,
         Err(err) => panic!("Unable to make raw controller: err {}", err)
     };
@@ -130,9 +131,9 @@ fn main() {
     // Initialize a democratized virtual controller
     let controller = match DemC::new(raw_controller, demc::ControllerConstraints {
         illegal_combinations: vec![
-                                (String::from("start"), vec!(String::from("b"), String::from("x"))),
-                                (String::from("b"), vec!(String::from("start"), String::from("x"))),
-                                (String::from("x"), vec!(String::from("b"), String::from("start")))] } )
+                                (String::from("start"), vec!(String::from("l"), String::from("r"))),
+                                (String::from("l"), vec!(String::from("start"), String::from("r"))),
+                                (String::from("r"), vec!(String::from("l"), String::from("start")))] } )
     {
         Ok(controller) => controller,
         Err(err) => panic!("Unable to create democratized controller: DemC error {}", err)

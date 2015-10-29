@@ -1,13 +1,17 @@
-/*se std::collections::HashMap;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use demc::virtc::*;
 
+
 //@todo track state
 pub struct VN64C {
-    axes: HashMap<String, (u32, i64, i64)>,
+    device_number: u32,
+    axis_constants: HashMap<String, (u32, i64, i64)>,
+    axis_states: Arc<Mutex<HashMap<String, f32>>>,
     joysticks: HashMap<String, (String, String)>,
-    buttons: HashMap<String, u8>,
-    device_number: u32
+    button_names_to_indices: HashMap<String, u8>,
+    button_names_to_states: Arc<Mutex<HashMap<String, bool>>>
 }
 
 impl IsVJoyDevice for VN64C {
@@ -16,8 +20,12 @@ impl IsVJoyDevice for VN64C {
     }
 }
 impl HasAxes for VN64C {
-    fn get_axis_map(&self) -> &HashMap<String, (u32, i64, i64)> {
-        &self.axes
+    fn get_axis_constants(&self) -> &HashMap<String, (u32, i64, i64)> {
+        &self.axis_constants
+    }
+    
+    fn get_axis_states(&self) -> Arc<Mutex<HashMap<String, f32>>> {
+        self.axis_states.clone()
     }
 }
 impl HasJoysticks for VN64C {
@@ -27,7 +35,11 @@ impl HasJoysticks for VN64C {
 }
 impl HasButtons for VN64C {
     fn get_button_name_to_index_map(&self) -> &HashMap<String, u8> {
-        &self.buttons
+        &self.button_names_to_indices
+    }
+    
+    fn get_button_name_to_state_map(&self) -> Arc<Mutex<HashMap<String, bool>>> {
+        self.button_names_to_states.clone()
     }
 }
 impl HasAxesAndButtons for VN64C {}
@@ -45,16 +57,30 @@ impl VN64C {
     // Err(2): vjoystick doesn't meet N64 controller requirements
     // Err(3): unable to claim and reset vjoystick
     pub fn new(device_number: u32,
-               axes: HashMap<String, (u32, i64, i64)>,
+               axis_constants: HashMap<String, (u32, i64, i64)>,
                joysticks: HashMap<String, (String, String)>,
-               buttons: HashMap<String, u8>)
+               button_names_to_indices: HashMap<String, u8>)
                     -> Result<Self, u8>
     {
-        let virtc = VN64C { axes: axes, joysticks: joysticks, buttons: buttons, device_number: device_number };
+        let mut axis_states = HashMap::new();
+        for (axis_name, _) in axis_constants.iter() {
+            axis_states.insert(axis_name.clone(), 0.0);
+        }
+    
+        let mut button_names_to_states = HashMap::new();
+        for (button_name, _) in button_names_to_indices.iter() {
+            button_names_to_states.insert(button_name.clone(), false);
+        }
+        
+        let virtc = VN64C { device_number: device_number,
+                            axis_constants: axis_constants,
+                            axis_states: Arc::new(Mutex::new(axis_states)),
+                            joysticks: joysticks,
+                            button_names_to_indices: button_names_to_indices,
+                            button_names_to_states: Arc::new(Mutex::new(button_names_to_states)) };
 
-        match virtc.verify_vjoystick_compatibility() {
-            Ok(_) => (),
-            Err(_) => return Err(2)
+        if let Err(_) = virtc.verify_vjoystick_compatibility() {
+            return Err(2);
         }
 
         match virtc.claim_and_reset() {
@@ -64,8 +90,10 @@ impl VN64C {
     }
 }
 
-pub fn sample_n64_controller_hardware(device_number: u32) -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, (String, String)>, HashMap<String, u8>), u8> {
-    let mut axes = HashMap::new();
+pub fn sample_n64_controller_hardware(device_number: u32)
+        -> Result<(HashMap<String, (u32, i64, i64)>, HashMap<String, (String, String)>,HashMap<String, u8>), u8>
+{
+    let mut axis_constants = HashMap::new();
 
     let x_min = match vjoy_rust::get_vjoystick_axis_min(device_number, 0x30) {
         Ok(min) => min,
@@ -83,9 +111,9 @@ pub fn sample_n64_controller_hardware(device_number: u32) -> Result<(HashMap<Str
         Ok(max) => max,
         Err(_) => return Err(4)
     };
-
-    axes.insert(String::from("x"), (0x30, x_min, x_max));
-    axes.insert(String::from("y"), (0x31, y_min, y_max));
+    
+    axis_constants.insert(String::from("x"), (0x30, x_min, x_max));
+    axis_constants.insert(String::from("y"), (0x31, y_min, y_max));
 
     let mut joysticks = HashMap::new();
     joysticks.insert(String::from("control_stick"), (String::from("x"), String::from("y")));
@@ -106,6 +134,5 @@ pub fn sample_n64_controller_hardware(device_number: u32) -> Result<(HashMap<Str
     buttons.insert(String::from("dleft"), 0x0d);
     buttons.insert(String::from("dright"), 0x0e);
 
-    Ok((axes, joysticks, buttons))
+    Ok((axis_constants, joysticks, buttons))
 }
-*/
