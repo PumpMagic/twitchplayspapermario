@@ -341,7 +341,7 @@ impl<T> ChatInterfaced for DemC<T> {
             } else if let Some(dcap) = cap.name("delay_hardcode") {
                 // delay command - only one argument, the delay to insert
                 match dcap {
-                    "+" => { cumulative_delay += MILLISECONDS_PER_FRAME; },
+                    "+" => { cumulative_delay += SIMULTANEOUS_COMMAND_DELAY; },
                     "!" => { 
                         match last_command {
                             Some(command) => { cumulative_delay += command.duration.num_milliseconds() as u32; },
