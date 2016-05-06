@@ -1,10 +1,25 @@
 # Twitch Plays Paper Mario
-Twitch Plays Paper Mario is a pet project and direct spinoff of Twitch Plays Pokemon. You can find it deployed live at [TwitchTV](http://www.twitch.tv/twitchplayspapermario).
+Twitch Plays Paper Mario is a set of virtual game controllers, an IRC chat bot, and command parsers that together enable the collaborative play of single-player games over the internet. It's a direct spinoff of Twitch Plays Pokemon. You can find it [deployed live at TwitchTV](http://www.twitch.tv/twitchplayspapermario).
 
-## Building and Running
-TPPM can be built with Cargo, Rust's package manager. Due to its dependency on [vJoy](http://vjoystick.sourceforge.net/site/), it will only work in Windows.
+## Running TPPM
+### Dependencies
+[Rust 1.8](https://www.rust-lang.org)
+[vJoy](http://vjoystick.sourceforge.net/site/)
+Windows 7 x64
 
-From the project root, type `cargo build`. If everything goes right, it'll fail after building but before linking, because it can't find the vJoy DLL. Copy `src/libvn64c/vjoyinterface/vjoyinterface.dll` to `target/debug` and try running `cargo build` again; it should generate a binary. Run it with `cargo run`.
+### Building
+1. From the project root, type `cargo build`. Your build should fail after building but before linking, because it can't find the vJoy DLL.
+2. Copy `src/libvn64c/vjoyinterface/vjoyinterface.dll` to `target/debug`
+3. Run `cargo build` again. Linking should succeed.
+
+### Configuration
+TPPM uses a homegrown IRC library that is configured to work with Twitch.tv's IRC servers.
+1. Copy tppm.toml.example in the root directory to tppm.toml
+2. Get your Twitch OAuth key by visiting https://twitchapps.com/tmi/ while logged into Twitch
+3. In tppm.toml, put your Twitch OAuth key into the "pass" field, your Twitch account name into the "nick" field, and the channel of the Twitch user you want to listen to in "channel"
+
+### Running
+Run TPPM with `cargo run`.
 
 Before TPPM will do anything useful, you'll also need to
 * install vJoy,
