@@ -3,9 +3,9 @@ Twitch Plays Paper Mario is a set of virtual game controllers, an IRC chat bot, 
 
 ## Running TPPM
 ### Dependencies
-[Rust 1.8](https://www.rust-lang.org)
-[vJoy](http://vjoystick.sourceforge.net/site/)
-Windows 7 x64
+* [Rust 1.8](https://www.rust-lang.org)
+* [vJoy](http://vjoystick.sourceforge.net/site/)
+* Windows 7 x64
 
 ### Building
 1. From the project root, type `cargo build`. Your build should fail after building but before linking, because it can't find the vJoy DLL.
