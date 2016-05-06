@@ -116,40 +116,52 @@ mod platform {
             Key::Physical(p) => {
                 let mut x = INPUT {
                     type_: INPUT_KEYBOARD,
-                    union_: transmute_copy::<KEYBDINPUT, MOUSEINPUT>(&KEYBDINPUT {
+                    u: [0u64; 4],
+                };
+                unsafe {
+                    *x.ki_mut() = KEYBDINPUT {
                         wVk: get_keycode(p), // 'a' key
                         wScan: 0, // 0 := hardware scan code for a key
                         dwFlags: 0, // 0 := a key press
                         time: 0,
                         dwExtraInfo: 0,
-                    }),
-                };
+                    };
+                }
+                
                 SendInput(1, &mut x as LPINPUT, size_of::<INPUT>() as c_int);
             },
             Key::Unicode(c) => {
                 let mut x = INPUT {
                     type_: INPUT_KEYBOARD,
-                    union_: transmute_copy::<KEYBDINPUT, MOUSEINPUT>(&KEYBDINPUT {
+                    u: [0u64; 4],
+                };
+                unsafe {
+                    *x.ki_mut() = KEYBDINPUT {
                         wVk: 0,
                         wScan: c as WORD, // 0 := hardware scan code for a key
                         dwFlags: KEYEVENTF_UNICODE, // 0 := a key press
                         time: 0,
                         dwExtraInfo: 0,
-                    }),
-                };
+                    };
+                }
+                
                 SendInput(1, &mut x as LPINPUT, size_of::<INPUT>() as c_int);
             },
             Key::Scan(sc) => {
                 let mut x = INPUT {
                     type_: INPUT_KEYBOARD,
-                    union_: transmute_copy::<KEYBDINPUT, MOUSEINPUT>(&KEYBDINPUT {
+                    u: [0u64; 4],
+                };
+                unsafe {
+                    *x.ki_mut() = KEYBDINPUT {
                         wVk: 0,
                         wScan: get_scancode(sc),
                         dwFlags: KEYEVENTF_SCANCODE,
                         time: 0,
                         dwExtraInfo: 0,
-                    }),
-                };
+                    };
+                }
+                
                 SendInput(1, &mut x as LPINPUT, size_of::<INPUT>() as c_int);
             }
         }}
@@ -160,40 +172,52 @@ mod platform {
             Key::Physical(p) => {
                 let mut x = INPUT {
                     type_: INPUT_KEYBOARD,
-                    union_: transmute_copy::<KEYBDINPUT, MOUSEINPUT>(&KEYBDINPUT {
+                    u: [0u64; 4],
+                };
+                unsafe {
+                    *x.ki_mut() = KEYBDINPUT {
                         wVk: get_keycode(p), // 'a' key
                         wScan: 0, // 0 := hardware scan code for a key
                         dwFlags: KEYEVENTF_KEYUP,
                         time: 0,
                         dwExtraInfo: 0,
-                    }),
-                };
+                    };
+                }
+                
                 SendInput(1, &mut x as LPINPUT, size_of::<INPUT>() as c_int);
             },
             Key::Unicode(c) => {
                 let mut x = INPUT {
                     type_: INPUT_KEYBOARD,
-                    union_: transmute_copy::<KEYBDINPUT, MOUSEINPUT>(&KEYBDINPUT {
+                    u: [0u64; 4],
+                };
+                unsafe {
+                    *x.ki_mut() = KEYBDINPUT {
                         wVk: 0, // 'a' key
                         wScan: c as WORD, // 0 := hardware scan code for a key
                         dwFlags: KEYEVENTF_UNICODE|KEYEVENTF_KEYUP,
                         time: 0,
                         dwExtraInfo: 0,
-                    }),
-                };
+                    };
+                }
+                
                 SendInput(1, &mut x as LPINPUT, size_of::<INPUT>() as c_int);
             },
             Key::Scan(sc) => {
                 let mut x = INPUT {
                     type_: INPUT_KEYBOARD,
-                    union_: transmute_copy::<KEYBDINPUT, MOUSEINPUT>(&KEYBDINPUT {
+                    u: [0u64; 4],
+                };
+                unsafe {
+                    *x.ki_mut() = KEYBDINPUT {
                         wVk: 0, // 'a' key
                         wScan: get_scancode(sc),
                         dwFlags: KEYEVENTF_SCANCODE|KEYEVENTF_KEYUP,
                         time: 0,
                         dwExtraInfo: 0,
-                    }),
-                };
+                    };
+                }
+                
                 SendInput(1, &mut x as LPINPUT, size_of::<INPUT>() as c_int);
             }
         }}
