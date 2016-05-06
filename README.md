@@ -14,6 +14,7 @@ Twitch Plays Paper Mario is a set of virtual game controllers, an IRC chat bot, 
 
 ### Configuration
 TPPM uses a homegrown IRC library that is configured to work with Twitch.tv's IRC servers.
+
 1. Copy tppm.toml.example in the root directory to tppm.toml
 2. Get your Twitch OAuth key by visiting https://twitchapps.com/tmi/ while logged into Twitch
 3. In tppm.toml, put your Twitch OAuth key into the "pass" field, your Twitch account name into the "nick" field, and the channel of the Twitch user you want to listen to in "channel"
