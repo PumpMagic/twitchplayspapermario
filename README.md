@@ -15,9 +15,9 @@ Twitch Plays Paper Mario is a set of virtual game controllers, an IRC chat bot, 
 ### Configuration
 TPPM uses a homegrown IRC library that is configured to work with Twitch.tv's IRC servers.
 
-1. Copy tppm.toml.example in the root directory to tppm.toml
+1. In the root directory, copy `tppm.toml.example` to `tppm.toml`
 2. Get your Twitch OAuth key by visiting https://twitchapps.com/tmi/ while logged into Twitch
-3. In tppm.toml, put your Twitch OAuth key into the "pass" field, your Twitch account name into the "nick" field, and the channel of the Twitch user you want to listen to in "channel"
+3. In `tppm.toml`, put your Twitch OAuth key into the "pass" field, your Twitch account name into the "nick" field, and the channel of the Twitch user you want to listen to in "channel"
 
 ### Running
 Run TPPM with `cargo run`.
@@ -37,6 +37,9 @@ TPPM's virtual N64 controller is composed of, from the bottom up,
 TPPM's Twitch interface is composed of
 * An IRC listener bot (libirc)
 * A text-based controller command parser (currently sitting in main, lol)
+
+## License
+TPPM is copyright 2015-2016 Ryan Conway. Code released under the MIT license. See License.txt in this repository's root directory.
 
 ## Disclaimer
 I wrote TPPM in my spare time to learn Rust.
