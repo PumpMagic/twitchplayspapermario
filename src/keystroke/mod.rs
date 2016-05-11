@@ -16,6 +16,8 @@ pub enum Physical {
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Scan {
+    Shift, LCtrl,
+    R,
     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12
 }
 
@@ -96,6 +98,9 @@ mod platform {
     pub fn get_scancode(s: Scan) -> WORD {
         use super::Scan::*;
         match s {
+            Shift => 0x2A as WORD,
+            LCtrl => 0x1D as WORD,
+            R => 0x13 as WORD,
             F1 => 0x3B as WORD,
             F2 => 0x3C as WORD,
             F3 => 0x3D as WORD,

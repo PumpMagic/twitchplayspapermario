@@ -3,11 +3,13 @@
 use std::net::TcpStream;
 use std::io::Read;
 use std::io::Write;
+use std::io::ErrorKind;
 use std::str::FromStr;
 use std::thread;
 use std::sync::mpsc;
 
 use std::ops;
+use std::time::Duration;
 
 use regex::Regex;
 
@@ -330,6 +332,7 @@ impl IrcStream {
             Ok(stream) => stream,
             Err(_) => return Err(())
         };
+        stream.set_read_timeout(Some(Duration::new(120, 0)));
         
         // Create two application-local channels: one for passing received privmsgs to our user app,
         // and one for listening from our user app for a kill command
@@ -383,6 +386,7 @@ impl IrcStream {
                         1|2|3 => {
                             println!("Got error: {}", num);
                             connected = false;
+                            awaiting_endofnames = false;
                             loop {
                                 match TcpStream::connect(&server[..]) {
                                     Ok(the_stream) => {
@@ -393,6 +397,12 @@ impl IrcStream {
                                 }
                             }
                         },
+                        4 => {
+                            println!("Unrecognized message");
+                        },
+                        5 => {
+                            IrcStream::send_pong(&mut stream);
+                        }
                         _ => ()
                     }
                 }
@@ -418,7 +428,14 @@ impl IrcStream {
     fn send_message(stream: &mut TcpStream, message: IrcMessage) -> Result<(), ()> {
         let message_string: String = message.into();
         
+        println!("Out: {}", &message_string);
+        
         match stream.write_all(message_string.as_bytes()) {
+            Ok(_) => (),
+            Err(_) => { return Err(()); }
+        }
+        
+        match stream.flush() {
             Ok(_) => Ok(()),
             Err(_) => Err(())
         }
@@ -443,7 +460,7 @@ impl IrcStream {
     }
 
     fn send_pong(stream: &mut TcpStream) -> Result<(), ()> {
-        let pong_message = IrcMessage { prefix: None, command: Command::Pong, params: None };
+        let pong_message = IrcMessage { prefix: None, command: Command::Pong, params: Some(Params::from(vec![String::from("tmi.twitch.tv")])) };
         
         try!(IrcStream::send_message(stream, pong_message));
         
@@ -470,6 +487,7 @@ impl IrcStream {
     // Err(2): TCP read error - probably need to reconnect socket
     // Err(3): stream received a non-UTF8 character?
     // Err(4): received unrecognized message
+    // Err(5): No bytes receives for three minutes
     fn get_message(stream: &mut TcpStream) -> Result<IrcMessage, u8> {
         // Receive a message from the server as raw bytes.
         // We'll convert it to a String once we've received the whole thing, to simplify parsing
@@ -482,27 +500,42 @@ impl IrcStream {
             
             let mut read_adaptor = stream.take(1);
             let read_result = read_adaptor.read_to_end(&mut read_byte_vec);
+            //let read_result = read_adaptor.read(&mut read_byte_vec);
             match read_result {
-                Ok(_) => {
-                    match read_byte_vec.get(0) {
-                        Some(byte) => response.push(*byte),
-                        None => return Err(1)
-                    }
-                    if last_two_are_crlf(&response) {
-                        // Convert our raw byte vector into a String for easier, native processing
-                        //@TODO Better handle invalid messages
-                        match String::from_utf8(response) {
-                            Ok(msg_str) => {
-                                match IrcMessage::from_str(&msg_str) {
-                                    Ok(msg) => return Ok(msg),
-                                    _ => return Err(4)
+                Ok(bytes_read) => {
+                    match bytes_read {
+                        1 => {
+                            match read_byte_vec.get(0) {
+                                Some(byte) => response.push(*byte),
+                                None => return Err(1)
+                            }
+                            if last_two_are_crlf(&response) {
+                                // Convert our raw byte vector into a String for easier, native processing
+                                //@TODO Better handle invalid messages
+                                match String::from_utf8(response) {
+                                    Ok(msg_str) => {
+                                        println!("In: {}", &msg_str);
+                                        match IrcMessage::from_str(&msg_str) {
+                                            Ok(msg) => return Ok(msg),
+                                            _ => return Err(4)
+                                        }
+                                    },
+                                    _ => return Err(3)
                                 }
-                            },
-                            _ => return Err(3)
+                            }
                         }
+                        _ => {}
                     }
                 },
-                Err(_) => return Err(2)
+                Err(err) => match err.kind() {
+                    ErrorKind::TimedOut => {
+                        return Err(5)
+                    }
+                    _ => {
+                        println!("Read error: {:?}", err.kind());
+                        return Err(2)
+                    }
+                }
             }
         }
     }

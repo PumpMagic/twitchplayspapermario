@@ -28,17 +28,27 @@ const ACCEPT_CONTROLLER_COMMANDS_ON_BOOT: bool = true;
 
 
 enum ModCommand {
-    SaveState,
-    LoadState,
+    SaveState1,
+    SaveState2,
+    SaveState3,
+    LoadState1,
+    LoadState2,
+    LoadState3,
+    RebootCore,
     UnplugController,
     PlugController
 }
 fn parse_mod_commands(sender: &String, msg: &String) -> Option<ModCommand> {
     match sender.to_lowercase().as_ref() {
-        "twitchplayspapermario"|"xxn1"|"kalarmar"|"rashama_izouki"|"mooismyusername" => {
+        "twitchplayspapermario"|"xxn1"|"kalarmar"|"rashama_izouki"|"mooismyusername"|"pumpmagic"|"stryder7x"|"rainmaker69007" => {
             match msg.to_lowercase().as_ref() {
-                "!savestate" => Some(ModCommand::SaveState),
-                "!loadstate" => Some(ModCommand::LoadState),
+                "!savestate1" => Some(ModCommand::SaveState1),
+                "!savestate2" => Some(ModCommand::SaveState2),
+                "!savestate3" => Some(ModCommand::SaveState3),
+                "!loadstate1" => Some(ModCommand::LoadState1),
+                "!loadstate2" => Some(ModCommand::LoadState2),
+                "!loadstate3" => Some(ModCommand::LoadState3),
+                //"!rebootcore" => Some(ModCommand::RebootCore),
                 "!unplugcontroller" => Some(ModCommand::UnplugController),
                 "!plugcontroller" => Some(ModCommand::PlugController),
                 _ => None
@@ -65,7 +75,6 @@ fn log_tmi_message(sender: &String, message: &String, handler: &Option<ChatMessa
     log.write_all(&log_string.as_bytes());
     log.write_all("\r\n".as_bytes());
     log.flush();
-    println!("{}", log_string);
 }
 
 fn handle_tmi_message<T>(sender: &String, message: &String, accepting_controller_commands: bool,
@@ -78,15 +87,56 @@ fn handle_tmi_message<T>(sender: &String, message: &String, accepting_controller
         match parse_mod_commands(sender, message) {
             Some(mod_command) => {
                 match mod_command {
-                    ModCommand::SaveState => {
+                    ModCommand::SaveState1 => {
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::Shift));
+                        thread::sleep_ms(100);
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::F1));
+                        thread::sleep_ms(100);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::F1));
+                        thread::sleep_ms(100);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::Shift));
+                    },
+                    ModCommand::SaveState2 => {
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::Shift));
+                        thread::sleep_ms(100);
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::F2));
+                        thread::sleep_ms(100);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::F2));
+                        thread::sleep_ms(100);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::Shift));
+                    },
+                    ModCommand::SaveState3 => {
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::Shift));
+                        thread::sleep_ms(100);
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::F3));
+                        thread::sleep_ms(100);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::F3));
+                        thread::sleep_ms(100);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::Shift));
+                    },
+                    ModCommand::LoadState1 => {
                         keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::F1));
                         thread::sleep_ms(500);
                         keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::F1));
                     },
-                    ModCommand::LoadState => {
-                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::F7));
+                    ModCommand::LoadState2 => {
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::F2));
                         thread::sleep_ms(500);
-                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::F7));
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::F2));
+                    },
+                    ModCommand::LoadState3 => {
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::F3));
+                        thread::sleep_ms(500);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::F3));
+                    },
+                    ModCommand::RebootCore => {
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::LCtrl));
+                        thread::sleep_ms(100);
+                        keystroke::press_key(keystroke::Key::Scan(keystroke::Scan::R));
+                        thread::sleep_ms(100);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::R));
+                        thread::sleep_ms(100);
+                        keystroke::release_key(keystroke::Key::Scan(keystroke::Scan::LCtrl));
                     },
                     ModCommand::UnplugController => {
                         new_accept_controller_command_value = Some(false);
@@ -166,5 +216,7 @@ fn main() {
             },
             Err(_) => ()
         }
+        
+        thread::sleep_ms(1);
     }
 }
